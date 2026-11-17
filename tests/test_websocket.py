@@ -57,3 +57,22 @@ async def test_save_geometry_caps_vertex_count(hass, hass_ws_client):
     big = [[float(i % 360), 10.0] for i in range(65)]
     await ws.send_json({"id": 1, "type": "mapa_nieba/save_geometry", "obstructions": [big]})
     assert not (await ws.receive_json())["success"]
+
+
+async def test_sky_always_has_solar_system_and_rises(hass, hass_ws_client):
+    from custom_components.mapa_nieba.const import CONF_OBJECTS
+    entry = make_entry(**{CONF_OBJECTS: ["sirius"]})
+    await setup(hass, entry)
+    ws = await hass_ws_client(hass)
+    await ws.send_json({"id": 1, "type": "mapa_nieba/sky", "times": TIMES})
+    res = (await ws.receive_json())["result"]
+    assert {"sun", "moon", "mercury", "venus", "mars", "jupiter", "saturn"} <= set(res["objects"])
+    assert 0 <= res["rises"]["sun"]["az"] < 360
+    assert "time" in res["rises"]["moon"] or res["rises"]["moon"] is None
+
+
+async def test_config_photo_defaults(hass, hass_ws_client):
+    entry, ws = await _client(hass, hass_ws_client)
+    await ws.send_json({"id": 1, "type": "mapa_nieba/config"})
+    res = (await ws.receive_json())["result"]
+    assert res["photo"] is None and res["photo_opacity"] == 0.6

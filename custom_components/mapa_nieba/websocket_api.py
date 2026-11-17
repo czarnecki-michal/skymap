@@ -9,10 +9,14 @@ from homeassistant.helpers import entity_registry as er
 from homeassistant.util import dt as dt_util
 
 
-from .const import CONF_GEOMETRY, CONF_OBJECTS, CONF_OBSTRUCTIONS, CONF_TWILIGHT, DEFAULT_GEOMETRY, DOMAIN
+from .const import (
+    CONF_GEOMETRY, CONF_OBJECTS, CONF_OBSTRUCTIONS, CONF_PHOTO, CONF_PHOTO_OPACITY,
+    CONF_TWILIGHT, DEFAULT_GEOMETRY, DEFAULT_PHOTO_OPACITY, DOMAIN, PHOTO_URL,
+)
 from .objects import CATALOG
 
 MAX_TIMES = 300
+SOLAR_SYSTEM = ["sun", "moon", "mercury", "venus", "mars", "jupiter", "saturn"]
 
 
 def _entry(hass: HomeAssistant):
@@ -34,6 +38,10 @@ def ws_config(hass, connection, msg):
         "geometry": {**DEFAULT_GEOMETRY, **o[CONF_GEOMETRY]},
         "obstructions": o.get(CONF_OBSTRUCTIONS, []),
         "twilight": o[CONF_TWILIGHT],
+        "photo": (
+            {"url": PHOTO_URL, "version": o[CONF_PHOTO]["version"]} if o.get(CONF_PHOTO) else None
+        ),
+        "photo_opacity": o.get(CONF_PHOTO_OPACITY, DEFAULT_PHOTO_OPACITY),
         "observer": {"lat": c.latitude, "lon": c.longitude, "elevation": c.elevation},
         "objects": [
             {
@@ -63,8 +71,11 @@ async def ws_sky(hass, connection, msg):
         connection.send_error(msg["id"], "invalid_time", "Bad ISO8601 time")
         return
     times = [dt_util.as_utc(t) for t in times]
-    objs = [CATALOG[i] for i in entry.options[CONF_OBJECTS]
-            if i in CATALOG and CATALOG[i].kind != "star"]
+    ids = list(SOLAR_SYSTEM) + [
+        i for i in entry.options[CONF_OBJECTS]
+        if i in CATALOG and CATALOG[i].kind != "star" and i not in SOLAR_SYSTEM
+    ]
+    objs = [CATALOG[i] for i in ids]
     c = hass.config
     lat, lon, elev = c.latitude, c.longitude, float(c.elevation or 0)
 
@@ -75,13 +86,18 @@ async def ws_sky(hass, connection, msg):
         track = astro.compute_track(objs, obs, times)
         sun = astro.sun_altitudes(obs, times)
         moon = astro.moon_phases(times)
-        return track, sun, moon
+        rises = {}
+        for body in ("sun", "moon"):
+            r = astro.next_rise(CATALOG[body], obs, times[0]) if times else None
+            rises[body] = {"time": r[0].isoformat(), "az": r[1]} if r else None
+        return track, sun, moon, rises
 
-    track, sun, moon = await hass.async_add_executor_job(work)
+    track, sun, moon, rises = await hass.async_add_executor_job(work)
     connection.send_result(msg["id"], {
         "objects": {k: [[a, z] for a, z in v] for k, v in track.items()},
         "sun_alt": sun,
         "moon": {"illumination": [m[0] for m in moon], "phase": [m[1] for m in moon]},
+        "rises": rises,
     })
 
 

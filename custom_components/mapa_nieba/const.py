@@ -7,6 +7,13 @@ CONF_GEOMETRY = "geometry"
 CONF_OBSTRUCTIONS = "obstructions"
 CONF_OBJECTS = "objects"
 CONF_TWILIGHT = "twilight"
+CONF_PHOTO = "photo"
+CONF_PHOTO_OPACITY = "photo_opacity"
+
+DEFAULT_PHOTO_OPACITY = 0.6
+PHOTO_URL = "/api/mapa_nieba/photo"
+PHOTO_MAX_BYTES = 15 * 1024 * 1024
+PHOTO_TYPES = {"image/jpeg": "jpg", "image/png": "png", "image/webp": "webp"}
 
 DEFAULT_GEOMETRY: dict[str, float] = {
     "az_center": 135.0,

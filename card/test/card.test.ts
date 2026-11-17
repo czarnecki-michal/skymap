@@ -50,3 +50,40 @@ describe("card", () => {
     expect(el._calibrating).toBe(false);
   });
 });
+
+describe("review fixes", () => {
+  it("calibrate -> save -> calibrate does not multiply obstruction vertices", async () => {
+    const { el, callWS } = make(true);
+    await el._load();
+    const square = [[0.3, 0.3], [0.5, 0.3], [0.5, 0.6], [0.3, 0.6]] as [number, number][];
+    el._startCalibration();
+    el._polys = [square];
+    await el._save();
+    const sent = callWS.mock.calls.map((c) => c[0]).find((m: any) => m.type === "mapa_nieba/save_geometry");
+    expect(sent.obstructions[0].length).toBe(4);
+    el._startCalibration();
+    expect(el._polys[0].length).toBe(4);
+  });
+  it("calibration adopts the aspect of the loaded photo", async () => {
+    const { el } = make(true);
+    await el._load();
+    el._imgAspect = 0.75;
+    el._startCalibration();
+    expect(el._geo!.aspect).toBeCloseTo(0.75);
+  });
+  it("a rejected save keeps calibration open and reports the error", async () => {
+    const { el, callWS } = make(true);
+    await el._load();
+    el._startCalibration();
+    callWS.mockImplementation(async () => { throw new Error("boom"); });
+    await el._save();
+    expect(el._calibrating).toBe(true);
+    expect(el._saveError).toMatch(/boom/);
+  });
+  it("hass-only updates do not re-render once loaded", async () => {
+    const { el } = make(true);
+    await el._load();
+    expect(el.shouldUpdate(new Map([["hass", 1]]))).toBe(false);
+    expect(el.shouldUpdate(new Map([["_offset", 1]]))).toBe(true);
+  });
+});

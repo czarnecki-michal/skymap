@@ -50,3 +50,10 @@ async def test_save_geometry_rejects_bad_polygon_and_non_admin(
     ro = await hass_ws_client(hass, hass_read_only_access_token)
     await ro.send_json({"id": 1, "type": "mapa_nieba/save_geometry", "geometry": GEO})
     assert (await ro.receive_json())["error"]["code"] == "unauthorized"
+
+
+async def test_save_geometry_caps_vertex_count(hass, hass_ws_client):
+    entry, ws = await _client(hass, hass_ws_client)
+    big = [[float(i % 360), 10.0] for i in range(65)]
+    await ws.send_json({"id": 1, "type": "mapa_nieba/save_geometry", "obstructions": [big]})
+    assert not (await ws.receive_json())["success"]

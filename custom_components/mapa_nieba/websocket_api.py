@@ -8,7 +8,7 @@ from homeassistant.core import HomeAssistant, callback
 from homeassistant.helpers import entity_registry as er
 from homeassistant.util import dt as dt_util
 
-from . import astro
+
 from .const import CONF_GEOMETRY, CONF_OBJECTS, CONF_OBSTRUCTIONS, CONF_TWILIGHT, DEFAULT_GEOMETRY, DOMAIN
 from .objects import CATALOG
 
@@ -66,9 +66,12 @@ async def ws_sky(hass, connection, msg):
     objs = [CATALOG[i] for i in entry.options[CONF_OBJECTS]
             if i in CATALOG and CATALOG[i].kind != "star"]
     c = hass.config
-    obs = astro.Observer(c.latitude, c.longitude, float(c.elevation or 0))
+    lat, lon, elev = c.latitude, c.longitude, float(c.elevation or 0)
 
     def work():
+        from . import astro  # skyfield stays out of the event loop
+
+        obs = astro.Observer(lat, lon, elev)
         track = astro.compute_track(objs, obs, times)
         sun = astro.sun_altitudes(obs, times)
         moon = astro.moon_phases(times)
@@ -82,7 +85,7 @@ async def ws_sky(hass, connection, msg):
     })
 
 
-_POLY = vol.All([vol.All([vol.Coerce(float)], vol.Length(min=2, max=2))], vol.Length(min=3))
+_POLY = vol.All([vol.All([vol.Coerce(float)], vol.Length(min=2, max=2))], vol.Length(min=3, max=64))
 
 
 @websocket_api.websocket_command({
@@ -94,7 +97,7 @@ _POLY = vol.All([vol.All([vol.Coerce(float)], vol.Length(min=2, max=2))], vol.Le
         vol.Required("aspect"): vol.All(vol.Coerce(float), vol.Range(0.3, 3)),
         vol.Optional("roll", default=0.0): vol.All(vol.Coerce(float), vol.Range(-180, 180)),
     },
-    vol.Optional("obstructions"): [_POLY],
+    vol.Optional("obstructions"): vol.All([_POLY], vol.Length(max=32)),
     vol.Optional("twilight"): vol.All(vol.Coerce(float), vol.Range(-18, 0)),
 })
 @websocket_api.require_admin

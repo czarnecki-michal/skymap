@@ -30,18 +30,25 @@ async def async_setup(hass: "HomeAssistant", config: dict) -> bool:
 async def async_setup_entry(hass: "HomeAssistant", entry: "ConfigEntry") -> bool:
     from homeassistant.exceptions import ConfigEntryError
 
-    from . import astro
     from .const import PLATFORMS
-    from .coordinator import MapaNiebaCoordinator
 
     if hass.config.latitude == 0 and hass.config.longitude == 0:
         _LOGGER.warning(
             "Lokalizacja Home Assistant to 0/0 - ustaw ją w Ustawienia > System > Ogólne"
         )
+
+    def _load_astro() -> None:
+        # first import of skyfield/numpy and the ephemeris read happen off the event loop
+        from . import astro
+
+        astro.ensure_ephemeris()
+
     try:
-        await hass.async_add_executor_job(astro.ensure_ephemeris)
+        await hass.async_add_executor_job(_load_astro)
     except FileNotFoundError as err:
         raise ConfigEntryError(str(err)) from err
+
+    from .coordinator import MapaNiebaCoordinator  # imports astro, already loaded
 
     coordinator = MapaNiebaCoordinator(hass, entry)
     await coordinator.async_config_entry_first_refresh()

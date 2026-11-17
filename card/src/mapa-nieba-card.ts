@@ -28,6 +28,8 @@ export class MapaNiebaCard extends LitElement {
     _calibrating: { state: true },
     _hover: { state: true },
     _error: { state: true },
+    _saveError: { state: true },
+    _imgAspect: { state: true },
   };
   hass: any;
   _config?: CardConfig;
@@ -41,6 +43,8 @@ export class MapaNiebaCard extends LitElement {
   _calibrating = false;
   _hover: any = null;
   _error = "";
+  _saveError = "";
+  _imgAspect = 0;
   _loading = false;
   _timer?: number;
   _drag?: { x: number; y: number };
@@ -70,12 +74,18 @@ export class MapaNiebaCard extends LitElement {
 
   connectedCallback() {
     super.connectedCallback();
-    this._timer = window.setInterval(() => this._loadSky(), 10 * 60000);
+    this._timer = window.setInterval(() => void this._loadSky().catch(() => undefined), 10 * 60000);
   }
 
   disconnectedCallback() {
     super.disconnectedCallback();
     if (this._timer) clearInterval(this._timer);
+  }
+
+  shouldUpdate(changed: Map<string, unknown>) {
+    // state changes elsewhere in HA must not rebuild the whole sky once the card is loaded
+    if (this._data && changed.size === 1 && changed.has("hass")) return false;
+    return true;
   }
 
   updated(changed: Map<string, unknown>) {
@@ -112,14 +122,23 @@ export class MapaNiebaCard extends LitElement {
   _startCalibration() {
     if (!this._data) return;
     this._geo = { ...this._data.geometry };
+    if (this._imgAspect > 0) this._geo.aspect = this._imgAspect;
+    this._saveError = "";
     this._polys = this._data.obstructions.map((p) => skyToPolygon(this._data!.geometry, p));
     this._calibrating = true;
   }
 
   async _save() {
     if (!this._geo) return;
-    const obstructions = this._polys.filter((p) => p.length >= 3).map((p) => polygonToSky(this._geo!, p));
-    await this.hass.callWS({ type: "mapa_nieba/save_geometry", geometry: this._geo, obstructions });
+    // vertices only (subdivide = 1): re-saving must never multiply the vertex count
+    const obstructions = this._polys.filter((p) => p.length >= 3).map((p) => polygonToSky(this._geo!, p, 1));
+    try {
+      await this.hass.callWS({ type: "mapa_nieba/save_geometry", geometry: this._geo, obstructions });
+    } catch (e: any) {
+      this._saveError = e?.message || "Zapis nie powiódł się";
+      return;
+    }
+    this._saveError = "";
     this._data = { ...this._data!, geometry: this._geo, obstructions };
     this._calibrating = false;
     this._draw = null;
@@ -157,6 +176,11 @@ export class MapaNiebaCard extends LitElement {
     this._draw = null;
   }
 
+  _photoLoaded(e: Event) {
+    const img = e.target as unknown as { naturalWidth?: number; naturalHeight?: number };
+    if (img.naturalWidth && img.naturalHeight) this._imgAspect = img.naturalWidth / img.naturalHeight;
+  }
+
   _openInfo(entityId: string | null) {
     if (!entityId) return;
     this.dispatchEvent(new CustomEvent("hass-more-info", { detail: { entityId }, bubbles: true, composed: true }));
@@ -170,7 +194,7 @@ export class MapaNiebaCard extends LitElement {
     const idx = sliderIndex(this._offset);
     const date = new Date(this._skyBase.getTime() + this._offset * 60000);
     const sky = this._sky;
-    const scene = buildScene({ ...this._data, geometry: g }, sky ? bodiesAt(sky, idx) : {}, date, W, H);
+    const scene = buildScene({ ...this._data, geometry: g }, sky ? bodiesAt(sky, idx) : {}, date, W, H, sky?.sun_alt?.[idx]);
     const obsShown: Poly[] = this._calibrating
       ? this._polys
       : this._data.obstructions.map((p) => skyToPolygon(g, p));
@@ -184,7 +208,8 @@ export class MapaNiebaCard extends LitElement {
         <svg viewBox="0 0 ${W} ${H}" @pointerdown=${this._down} @pointermove=${this._move}
              @pointerup=${() => (this._drag = undefined)} @wheel=${this._wheel}>
           <image href=${this._config.photo} width=${W} height=${H} preserveAspectRatio="none"
-                 opacity=${this._config.photo_opacity ?? 0.5}></image>
+                 opacity=${this._config.photo_opacity ?? 0.5}
+                 @load=${(e: Event) => this._photoLoaded(e)}></image>
           ${scene.lines.map((l) => svg`<line x1=${l.x1} y1=${l.y1} x2=${l.x2} y2=${l.y2} stroke="#6f8fff" stroke-width="0.6" opacity="0.5"/>`)}
           ${scene.stars.map((s) => svg`<circle cx=${s.x} cy=${s.y} r=${s.r} fill="#fff" opacity="0.9"/>`)}
           <path d=${scene.horizon} stroke="#3c9" fill="none" stroke-width="1" opacity="0.6"/>
@@ -216,7 +241,7 @@ export class MapaNiebaCard extends LitElement {
   }
 
   _tooltip(b: any, w: number, h: number) {
-    const st = b.entity_id ? this.hass?.states?.[b.entity_id]?.state : undefined;
+    const st = b.entity_id && this._offset === 0 ? this.hass?.states?.[b.entity_id]?.state : undefined;
     return html`<div class="tip" style="left:${(b.x / w) * 100}%;top:${(b.y / h) * 100}%">
       <b>${b.name}</b><br/>wys. ${b.alt.toFixed(1)}°, azym. ${b.az.toFixed(1)}°
       ${st ? html`<br/>${STATE_LABELS[st] ?? st}` : nothing}</div>`;
@@ -234,6 +259,7 @@ export class MapaNiebaCard extends LitElement {
         : html`<button @click=${() => (this._draw = [])}>Dodaj przeszkodę</button>
                <button @click=${() => (this._polys = this._polys.slice(0, -1))}>Cofnij przeszkodę</button>`}
       <button @click=${() => this._save()}>Zapisz</button>
+      ${this._saveError ? html`<span class="err">${this._saveError}</span>` : nothing}
       <button @click=${() => ((this._calibrating = false), (this._draw = null))}>Anuluj</button>
     </div>`;
   }

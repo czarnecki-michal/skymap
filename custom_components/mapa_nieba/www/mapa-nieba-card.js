@@ -19983,7 +19983,7 @@ const data = stars$1;
 function starRadius(mag) {
     return Math.max(0.6, 3.2 - 0.5 * mag);
 }
-function buildScene(cfg, bodies, date, w, h) {
+function buildScene(cfg, bodies, date, w, h, sunAlt) {
     const { lat, lon } = cfg.observer;
     const lst = localSiderealTime(date, lon);
     const px = (p) => (p ? [p[0] * w, p[1] * h] : null);
@@ -19994,13 +19994,14 @@ function buildScene(cfg, bodies, date, w, h) {
     };
     const cache = new Map();
     const sc = { stars: [], lines: [], bodies: [], horizon: "" };
-    for (const s of data.stars) {
+    const daylight = sunAlt !== undefined && sunAlt > cfg.twilight;
+    for (const s of daylight ? [] : data.stars) {
         const q = place(s[0], s[1]);
         cache.set(s[3], q);
         if (q.alt > 0 && q.p)
             sc.stars.push({ x: q.p[0], y: q.p[1], r: starRadius(s[2]) });
     }
-    for (const [a, b] of data.lines) {
+    for (const [a, b] of daylight ? [] : data.lines) {
         const qa = cache.get(a);
         const qb = cache.get(b);
         if (qa && qb && qa.alt > 0 && qb.alt > 0 && qa.p && qb.p) {
@@ -20008,6 +20009,8 @@ function buildScene(cfg, bodies, date, w, h) {
         }
     }
     for (const o of cfg.objects) {
+        if (daylight && (o.kind === "planet" || o.kind === "star"))
+            continue;
         const alt_az = bodies[o.id];
         if (o.kind === "star") {
             const st = starCatalogEntry(o.id);
@@ -20082,6 +20085,8 @@ class MapaNiebaCard extends i {
         this._calibrating = false;
         this._hover = null;
         this._error = "";
+        this._saveError = "";
+        this._imgAspect = 0;
         this._loading = false;
     }
     setConfig(config) {
@@ -20095,12 +20100,18 @@ class MapaNiebaCard extends i {
     }
     connectedCallback() {
         super.connectedCallback();
-        this._timer = window.setInterval(() => this._loadSky(), 10 * 60000);
+        this._timer = window.setInterval(() => void this._loadSky().catch(() => undefined), 10 * 60000);
     }
     disconnectedCallback() {
         super.disconnectedCallback();
         if (this._timer)
             clearInterval(this._timer);
+    }
+    shouldUpdate(changed) {
+        // state changes elsewhere in HA must not rebuild the whole sky once the card is loaded
+        if (this._data && changed.size === 1 && changed.has("hass"))
+            return false;
+        return true;
     }
     updated(changed) {
         if (changed.has("hass") && this.hass && !this._data && !this._loading)
@@ -20136,14 +20147,25 @@ class MapaNiebaCard extends i {
         if (!this._data)
             return;
         this._geo = { ...this._data.geometry };
+        if (this._imgAspect > 0)
+            this._geo.aspect = this._imgAspect;
+        this._saveError = "";
         this._polys = this._data.obstructions.map((p) => skyToPolygon(this._data.geometry, p));
         this._calibrating = true;
     }
     async _save() {
         if (!this._geo)
             return;
-        const obstructions = this._polys.filter((p) => p.length >= 3).map((p) => polygonToSky(this._geo, p));
-        await this.hass.callWS({ type: "mapa_nieba/save_geometry", geometry: this._geo, obstructions });
+        // vertices only (subdivide = 1): re-saving must never multiply the vertex count
+        const obstructions = this._polys.filter((p) => p.length >= 3).map((p) => polygonToSky(this._geo, p, 1));
+        try {
+            await this.hass.callWS({ type: "mapa_nieba/save_geometry", geometry: this._geo, obstructions });
+        }
+        catch (e) {
+            this._saveError = e?.message || "Zapis nie powiódł się";
+            return;
+        }
+        this._saveError = "";
         this._data = { ...this._data, geometry: this._geo, obstructions };
         this._calibrating = false;
         this._draw = null;
@@ -20179,6 +20201,11 @@ class MapaNiebaCard extends i {
             this._polys = [...this._polys, this._draw];
         this._draw = null;
     }
+    _photoLoaded(e) {
+        const img = e.target;
+        if (img.naturalWidth && img.naturalHeight)
+            this._imgAspect = img.naturalWidth / img.naturalHeight;
+    }
     _openInfo(entityId) {
         if (!entityId)
             return;
@@ -20194,7 +20221,7 @@ class MapaNiebaCard extends i {
         const idx = sliderIndex(this._offset);
         const date = new Date(this._skyBase.getTime() + this._offset * 60000);
         const sky = this._sky;
-        const scene = buildScene({ ...this._data, geometry: g }, sky ? bodiesAt(sky, idx) : {}, date, W, H);
+        const scene = buildScene({ ...this._data, geometry: g }, sky ? bodiesAt(sky, idx) : {}, date, W, H, sky?.sun_alt?.[idx]);
         const obsShown = this._calibrating
             ? this._polys
             : this._data.obstructions.map((p) => skyToPolygon(g, p));
@@ -20207,7 +20234,8 @@ class MapaNiebaCard extends i {
         <svg viewBox="0 0 ${W} ${H}" @pointerdown=${this._down} @pointermove=${this._move}
              @pointerup=${() => (this._drag = undefined)} @wheel=${this._wheel}>
           <image href=${this._config.photo} width=${W} height=${H} preserveAspectRatio="none"
-                 opacity=${this._config.photo_opacity ?? 0.5}></image>
+                 opacity=${this._config.photo_opacity ?? 0.5}
+                 @load=${(e) => this._photoLoaded(e)}></image>
           ${scene.lines.map((l) => w `<line x1=${l.x1} y1=${l.y1} x2=${l.x2} y2=${l.y2} stroke="#6f8fff" stroke-width="0.6" opacity="0.5"/>`)}
           ${scene.stars.map((s) => w `<circle cx=${s.x} cy=${s.y} r=${s.r} fill="#fff" opacity="0.9"/>`)}
           <path d=${scene.horizon} stroke="#3c9" fill="none" stroke-width="1" opacity="0.6"/>
@@ -20238,7 +20266,7 @@ class MapaNiebaCard extends i {
     </ha-card>`;
     }
     _tooltip(b$1, w, h) {
-        const st = b$1.entity_id ? this.hass?.states?.[b$1.entity_id]?.state : undefined;
+        const st = b$1.entity_id && this._offset === 0 ? this.hass?.states?.[b$1.entity_id]?.state : undefined;
         return b `<div class="tip" style="left:${(b$1.x / w) * 100}%;top:${(b$1.y / h) * 100}%">
       <b>${b$1.name}</b><br/>wys. ${b$1.alt.toFixed(1)}°, azym. ${b$1.az.toFixed(1)}°
       ${st ? b `<br/>${STATE_LABELS[st] ?? st}` : A}</div>`;
@@ -20255,6 +20283,7 @@ class MapaNiebaCard extends i {
             : b `<button @click=${() => (this._draw = [])}>Dodaj przeszkodę</button>
                <button @click=${() => (this._polys = this._polys.slice(0, -1))}>Cofnij przeszkodę</button>`}
       <button @click=${() => this._save()}>Zapisz</button>
+      ${this._saveError ? b `<span class="err">${this._saveError}</span>` : A}
       <button @click=${() => ((this._calibrating = false), (this._draw = null))}>Anuluj</button>
     </div>`;
     }
@@ -20271,6 +20300,8 @@ MapaNiebaCard.properties = {
     _calibrating: { state: true },
     _hover: { state: true },
     _error: { state: true },
+    _saveError: { state: true },
+    _imgAspect: { state: true },
 };
 MapaNiebaCard.styles = i$3 `
     ha-card { padding: 8px; }

@@ -32,7 +32,7 @@ export function starRadius(mag: number): number {
   return Math.max(0.6, 3.2 - 0.5 * mag);
 }
 
-export function buildScene(cfg: CardData, bodies: BodyPoints, date: Date, w: number, h: number): Scene {
+export function buildScene(cfg: CardData, bodies: BodyPoints, date: Date, w: number, h: number, sunAlt?: number): Scene {
   const { lat, lon } = cfg.observer;
   const lst = localSiderealTime(date, lon);
   const px = (p: [number, number] | null): [number, number] | null => (p ? [p[0] * w, p[1] * h] : null);
@@ -43,12 +43,13 @@ export function buildScene(cfg: CardData, bodies: BodyPoints, date: Date, w: num
   };
   const cache = new Map<number, { alt: number; p: [number, number] | null }>();
   const sc: Scene = { stars: [], lines: [], bodies: [], horizon: "" };
-  for (const s of data.stars) {
+  const daylight = sunAlt !== undefined && sunAlt > cfg.twilight;
+  for (const s of daylight ? [] : data.stars) {
     const q = place(s[0], s[1]);
     cache.set(s[3], q);
     if (q.alt > 0 && q.p) sc.stars.push({ x: q.p[0], y: q.p[1], r: starRadius(s[2]) });
   }
-  for (const [a, b] of data.lines) {
+  for (const [a, b] of daylight ? [] : data.lines) {
     const qa = cache.get(a);
     const qb = cache.get(b);
     if (qa && qb && qa.alt > 0 && qb.alt > 0 && qa.p && qb.p) {
@@ -56,6 +57,7 @@ export function buildScene(cfg: CardData, bodies: BodyPoints, date: Date, w: num
     }
   }
   for (const o of cfg.objects) {
+    if (daylight && (o.kind === "planet" || o.kind === "star")) continue;
     const alt_az = bodies[o.id];
     if (o.kind === "star") {
       const st = starCatalogEntry(o.id);

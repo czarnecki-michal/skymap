@@ -115,10 +115,12 @@ _POLY = vol.All([vol.All([vol.Coerce(float)], vol.Length(min=2, max=2))], vol.Le
     },
     vol.Optional("obstructions"): vol.All([_POLY], vol.Length(max=32)),
     vol.Optional("twilight"): vol.All(vol.Coerce(float), vol.Range(-18, 0)),
+    vol.Optional("photo_opacity"): vol.All(vol.Coerce(float), vol.Range(0, 1)),
+    vol.Optional("delete_photo"): bool,
 })
 @websocket_api.require_admin
-@callback
-def ws_save_geometry(hass, connection, msg):
+@websocket_api.async_response
+async def ws_save_geometry(hass, connection, msg):
     entry = _entry(hass)
     if entry is None:
         connection.send_error(msg["id"], "not_loaded", "Mapa nieba is not set up")
@@ -130,6 +132,16 @@ def ws_save_geometry(hass, connection, msg):
         opts[CONF_OBSTRUCTIONS] = msg["obstructions"]
     if "twilight" in msg:
         opts[CONF_TWILIGHT] = msg["twilight"]
+    if "photo_opacity" in msg:
+        opts[CONF_PHOTO_OPACITY] = msg["photo_opacity"]
+    if msg.get("delete_photo"):
+        from .photo import photo_dir, remove_photo_files
+
+        folder = photo_dir(hass)
+        await hass.async_add_executor_job(
+            lambda: remove_photo_files(folder) if folder.exists() else None
+        )
+        opts.pop(CONF_PHOTO, None)
     hass.config_entries.async_update_entry(entry, options=opts)
     connection.send_result(msg["id"], {"saved": True})
 

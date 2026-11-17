@@ -16,7 +16,7 @@ const t$1=globalThis,e$2=t$1.ShadowRoot&&(void 0===t$1.ShadyCSS||t$1.ShadyCSS.na
  * Copyright 2017 Google LLC
  * SPDX-License-Identifier: BSD-3-Clause
  */
-const t=globalThis,i$1=t=>t,s$1=t.trustedTypes,e=s$1?s$1.createPolicy("lit-html",{createHTML:t=>t}):void 0,h="$lit$",o$1=`lit$${Math.random().toFixed(9).slice(2)}$`,n="?"+o$1,r=`<${n}>`,l=document,c=()=>l.createComment(""),a=t=>null===t||"object"!=typeof t&&"function"!=typeof t,u=Array.isArray,d=t=>u(t)||"function"==typeof t?.[Symbol.iterator],f="[ \t\n\f\r]",v=/<(?:(!--|\/[^a-zA-Z])|(\/?[a-zA-Z][^>\s]*)|(\/?$))/g,_=/-->/g,m=/>/g,p=RegExp(`>|${f}(?:([^\\s"'>=/]+)(${f}*=${f}*(?:[^ \t\n\f\r"'\`<>=]|("|')|))|$)`,"g"),g=/'/g,$=/"/g,y=/^(?:script|style|textarea|title)$/i,x=t=>(i,...s)=>({_$litType$:t,strings:i,values:s}),b=x(1),E=Symbol.for("lit-noChange"),A=Symbol.for("lit-nothing"),C=new WeakMap,P=l.createTreeWalker(l,129);function V(t,i){if(!u(t)||!t.hasOwnProperty("raw"))throw Error("invalid template strings array");return void 0!==e?e.createHTML(i):i}const N=(t,i)=>{const s=t.length-1,e=[];let n,l=2===i?"<svg>":3===i?"<math>":"",c=v;for(let i=0;i<s;i++){const s=t[i];let a,u,d=-1,f=0;for(;f<s.length&&(c.lastIndex=f,u=c.exec(s),null!==u);)f=c.lastIndex,c===v?"!--"===u[1]?c=_:void 0!==u[1]?c=m:void 0!==u[2]?(y.test(u[2])&&(n=RegExp("</"+u[2],"g")),c=p):void 0!==u[3]&&(c=p):c===p?">"===u[0]?(c=n??v,d=-1):void 0===u[1]?d=-2:(d=c.lastIndex-u[2].length,a=u[1],c=void 0===u[3]?p:'"'===u[3]?$:g):c===$||c===g?c=p:c===_||c===m?c=v:(c=p,n=void 0);const x=c===p&&t[i+1].startsWith("/>")?" ":"";l+=c===v?s+r:d>=0?(e.push(a),s.slice(0,d)+h+s.slice(d)+o$1+x):s+o$1+(-2===d?i:x);}return [V(t,l+(t[s]||"<?>")+(2===i?"</svg>":3===i?"</math>":"")),e]};class S{constructor({strings:t,_$litType$:i},e){let r;this.parts=[];let l=0,a=0;const u=t.length-1,d=this.parts,[f,v]=N(t,i);if(this.el=S.createElement(f,e),P.currentNode=this.el.content,2===i||3===i){const t=this.el.content.firstChild;t.replaceWith(...t.childNodes);}for(;null!==(r=P.nextNode())&&d.length<u;){if(1===r.nodeType){if(r.hasAttributes())for(const t of r.getAttributeNames())if(t.endsWith(h)){const i=v[a++],s=r.getAttribute(t).split(o$1),e=/([.?@])?(.*)/.exec(i);d.push({type:1,index:l,name:e[2],strings:s,ctor:"."===e[1]?I:"?"===e[1]?L:"@"===e[1]?z:H}),r.removeAttribute(t);}else t.startsWith(o$1)&&(d.push({type:6,index:l}),r.removeAttribute(t));if(y.test(r.tagName)){const t=r.textContent.split(o$1),i=t.length-1;if(i>0){r.textContent=s$1?s$1.emptyScript:"";for(let s=0;s<i;s++)r.append(t[s],c()),P.nextNode(),d.push({type:2,index:++l});r.append(t[i],c());}}}else if(8===r.nodeType)if(r.data===n)d.push({type:2,index:l});else {let t=-1;for(;-1!==(t=r.data.indexOf(o$1,t+1));)d.push({type:7,index:l}),t+=o$1.length-1;}l++;}}static createElement(t,i){const s=l.createElement("template");return s.innerHTML=t,s}}function M(t,i,s=t,e){if(i===E)return i;let h=void 0!==e?s._$Co?.[e]:s._$Cl;const o=a(i)?void 0:i._$litDirective$;return h?.constructor!==o&&(h?._$AO?.(false),void 0===o?h=void 0:(h=new o(t),h._$AT(t,s,e)),void 0!==e?(s._$Co??=[])[e]=h:s._$Cl=h),void 0!==h&&(i=M(t,h._$AS(t,i.values),h,e)),i}class R{constructor(t,i){this._$AV=[],this._$AN=void 0,this._$AD=t,this._$AM=i;}get parentNode(){return this._$AM.parentNode}get _$AU(){return this._$AM._$AU}u(t){const{el:{content:i},parts:s}=this._$AD,e=(t?.creationScope??l).importNode(i,true);P.currentNode=e;let h=P.nextNode(),o=0,n=0,r=s[0];for(;void 0!==r;){if(o===r.index){let i;2===r.type?i=new k(h,h.nextSibling,this,t):1===r.type?i=new r.ctor(h,r.name,r.strings,this,t):6===r.type&&(i=new Z(h,this,t)),this._$AV.push(i),r=s[++n];}o!==r?.index&&(h=P.nextNode(),o++);}return P.currentNode=l,e}p(t){let i=0;for(const s of this._$AV) void 0!==s&&(void 0!==s.strings?(s._$AI(t,s,i),i+=s.strings.length-2):s._$AI(t[i])),i++;}}class k{get _$AU(){return this._$AM?._$AU??this._$Cv}constructor(t,i,s,e){this.type=2,this._$AH=A,this._$AN=void 0,this._$AA=t,this._$AB=i,this._$AM=s,this.options=e,this._$Cv=e?.isConnected??true;}get parentNode(){let t=this._$AA.parentNode;const i=this._$AM;return void 0!==i&&11===t?.nodeType&&(t=i.parentNode),t}get startNode(){return this._$AA}get endNode(){return this._$AB}_$AI(t,i=this){t=M(this,t,i),a(t)?t===A||null==t||""===t?(this._$AH!==A&&this._$AR(),this._$AH=A):t!==this._$AH&&t!==E&&this._(t):void 0!==t._$litType$?this.$(t):void 0!==t.nodeType?this.T(t):d(t)?this.k(t):this._(t);}O(t){return this._$AA.parentNode.insertBefore(t,this._$AB)}T(t){this._$AH!==t&&(this._$AR(),this._$AH=this.O(t));}_(t){this._$AH!==A&&a(this._$AH)?this._$AA.nextSibling.data=t:this.T(l.createTextNode(t)),this._$AH=t;}$(t){const{values:i,_$litType$:s}=t,e="number"==typeof s?this._$AC(t):(void 0===s.el&&(s.el=S.createElement(V(s.h,s.h[0]),this.options)),s);if(this._$AH?._$AD===e)this._$AH.p(i);else {const t=new R(e,this),s=t.u(this.options);t.p(i),this.T(s),this._$AH=t;}}_$AC(t){let i=C.get(t.strings);return void 0===i&&C.set(t.strings,i=new S(t)),i}k(t){u(this._$AH)||(this._$AH=[],this._$AR());const i=this._$AH;let s,e=0;for(const h of t)e===i.length?i.push(s=new k(this.O(c()),this.O(c()),this,this.options)):s=i[e],s._$AI(h),e++;e<i.length&&(this._$AR(s&&s._$AB.nextSibling,e),i.length=e);}_$AR(t=this._$AA.nextSibling,s){for(this._$AP?.(false,true,s);t!==this._$AB;){const s=i$1(t).nextSibling;i$1(t).remove(),t=s;}}setConnected(t){ void 0===this._$AM&&(this._$Cv=t,this._$AP?.(t));}}class H{get tagName(){return this.element.tagName}get _$AU(){return this._$AM._$AU}constructor(t,i,s,e,h){this.type=1,this._$AH=A,this._$AN=void 0,this.element=t,this.name=i,this._$AM=e,this.options=h,s.length>2||""!==s[0]||""!==s[1]?(this._$AH=Array(s.length-1).fill(new String),this.strings=s):this._$AH=A;}_$AI(t,i=this,s,e){const h=this.strings;let o=false;if(void 0===h)t=M(this,t,i,0),o=!a(t)||t!==this._$AH&&t!==E,o&&(this._$AH=t);else {const e=t;let n,r;for(t=h[0],n=0;n<h.length-1;n++)r=M(this,e[s+n],i,n),r===E&&(r=this._$AH[n]),o||=!a(r)||r!==this._$AH[n],r===A?t=A:t!==A&&(t+=(r??"")+h[n+1]),this._$AH[n]=r;}o&&!e&&this.j(t);}j(t){t===A?this.element.removeAttribute(this.name):this.element.setAttribute(this.name,t??"");}}class I extends H{constructor(){super(...arguments),this.type=3;}j(t){this.element[this.name]=t===A?void 0:t;}}class L extends H{constructor(){super(...arguments),this.type=4;}j(t){this.element.toggleAttribute(this.name,!!t&&t!==A);}}class z extends H{constructor(t,i,s,e,h){super(t,i,s,e,h),this.type=5;}_$AI(t,i=this){if((t=M(this,t,i,0)??A)===E)return;const s=this._$AH,e=t===A&&s!==A||t.capture!==s.capture||t.once!==s.once||t.passive!==s.passive,h=t!==A&&(s===A||e);e&&this.element.removeEventListener(this.name,this,s),h&&this.element.addEventListener(this.name,this,t),this._$AH=t;}handleEvent(t){"function"==typeof this._$AH?this._$AH.call(this.options?.host??this.element,t):this._$AH.handleEvent(t);}}class Z{constructor(t,i,s){this.element=t,this.type=6,this._$AN=void 0,this._$AM=i,this.options=s;}get _$AU(){return this._$AM._$AU}_$AI(t){M(this,t);}}const B=t.litHtmlPolyfillSupport;B?.(S,k),(t.litHtmlVersions??=[]).push("3.3.3");const D=(t,i,s)=>{const e=s?.renderBefore??i;let h=e._$litPart$;if(void 0===h){const t=s?.renderBefore??null;e._$litPart$=h=new k(i.insertBefore(c(),t),t,void 0,s??{});}return h._$AI(t),h};
+const t=globalThis,i$1=t=>t,s$1=t.trustedTypes,e=s$1?s$1.createPolicy("lit-html",{createHTML:t=>t}):void 0,h="$lit$",o$1=`lit$${Math.random().toFixed(9).slice(2)}$`,n="?"+o$1,r=`<${n}>`,l=document,c=()=>l.createComment(""),a=t=>null===t||"object"!=typeof t&&"function"!=typeof t,u=Array.isArray,d=t=>u(t)||"function"==typeof t?.[Symbol.iterator],f="[ \t\n\f\r]",v=/<(?:(!--|\/[^a-zA-Z])|(\/?[a-zA-Z][^>\s]*)|(\/?$))/g,_=/-->/g,m=/>/g,p=RegExp(`>|${f}(?:([^\\s"'>=/]+)(${f}*=${f}*(?:[^ \t\n\f\r"'\`<>=]|("|')|))|$)`,"g"),g=/'/g,$=/"/g,y=/^(?:script|style|textarea|title)$/i,x=t=>(i,...s)=>({_$litType$:t,strings:i,values:s}),b=x(1),w=x(2),E=Symbol.for("lit-noChange"),A=Symbol.for("lit-nothing"),C=new WeakMap,P=l.createTreeWalker(l,129);function V(t,i){if(!u(t)||!t.hasOwnProperty("raw"))throw Error("invalid template strings array");return void 0!==e?e.createHTML(i):i}const N=(t,i)=>{const s=t.length-1,e=[];let n,l=2===i?"<svg>":3===i?"<math>":"",c=v;for(let i=0;i<s;i++){const s=t[i];let a,u,d=-1,f=0;for(;f<s.length&&(c.lastIndex=f,u=c.exec(s),null!==u);)f=c.lastIndex,c===v?"!--"===u[1]?c=_:void 0!==u[1]?c=m:void 0!==u[2]?(y.test(u[2])&&(n=RegExp("</"+u[2],"g")),c=p):void 0!==u[3]&&(c=p):c===p?">"===u[0]?(c=n??v,d=-1):void 0===u[1]?d=-2:(d=c.lastIndex-u[2].length,a=u[1],c=void 0===u[3]?p:'"'===u[3]?$:g):c===$||c===g?c=p:c===_||c===m?c=v:(c=p,n=void 0);const x=c===p&&t[i+1].startsWith("/>")?" ":"";l+=c===v?s+r:d>=0?(e.push(a),s.slice(0,d)+h+s.slice(d)+o$1+x):s+o$1+(-2===d?i:x);}return [V(t,l+(t[s]||"<?>")+(2===i?"</svg>":3===i?"</math>":"")),e]};class S{constructor({strings:t,_$litType$:i},e){let r;this.parts=[];let l=0,a=0;const u=t.length-1,d=this.parts,[f,v]=N(t,i);if(this.el=S.createElement(f,e),P.currentNode=this.el.content,2===i||3===i){const t=this.el.content.firstChild;t.replaceWith(...t.childNodes);}for(;null!==(r=P.nextNode())&&d.length<u;){if(1===r.nodeType){if(r.hasAttributes())for(const t of r.getAttributeNames())if(t.endsWith(h)){const i=v[a++],s=r.getAttribute(t).split(o$1),e=/([.?@])?(.*)/.exec(i);d.push({type:1,index:l,name:e[2],strings:s,ctor:"."===e[1]?I:"?"===e[1]?L:"@"===e[1]?z:H}),r.removeAttribute(t);}else t.startsWith(o$1)&&(d.push({type:6,index:l}),r.removeAttribute(t));if(y.test(r.tagName)){const t=r.textContent.split(o$1),i=t.length-1;if(i>0){r.textContent=s$1?s$1.emptyScript:"";for(let s=0;s<i;s++)r.append(t[s],c()),P.nextNode(),d.push({type:2,index:++l});r.append(t[i],c());}}}else if(8===r.nodeType)if(r.data===n)d.push({type:2,index:l});else {let t=-1;for(;-1!==(t=r.data.indexOf(o$1,t+1));)d.push({type:7,index:l}),t+=o$1.length-1;}l++;}}static createElement(t,i){const s=l.createElement("template");return s.innerHTML=t,s}}function M(t,i,s=t,e){if(i===E)return i;let h=void 0!==e?s._$Co?.[e]:s._$Cl;const o=a(i)?void 0:i._$litDirective$;return h?.constructor!==o&&(h?._$AO?.(false),void 0===o?h=void 0:(h=new o(t),h._$AT(t,s,e)),void 0!==e?(s._$Co??=[])[e]=h:s._$Cl=h),void 0!==h&&(i=M(t,h._$AS(t,i.values),h,e)),i}class R{constructor(t,i){this._$AV=[],this._$AN=void 0,this._$AD=t,this._$AM=i;}get parentNode(){return this._$AM.parentNode}get _$AU(){return this._$AM._$AU}u(t){const{el:{content:i},parts:s}=this._$AD,e=(t?.creationScope??l).importNode(i,true);P.currentNode=e;let h=P.nextNode(),o=0,n=0,r=s[0];for(;void 0!==r;){if(o===r.index){let i;2===r.type?i=new k(h,h.nextSibling,this,t):1===r.type?i=new r.ctor(h,r.name,r.strings,this,t):6===r.type&&(i=new Z(h,this,t)),this._$AV.push(i),r=s[++n];}o!==r?.index&&(h=P.nextNode(),o++);}return P.currentNode=l,e}p(t){let i=0;for(const s of this._$AV) void 0!==s&&(void 0!==s.strings?(s._$AI(t,s,i),i+=s.strings.length-2):s._$AI(t[i])),i++;}}class k{get _$AU(){return this._$AM?._$AU??this._$Cv}constructor(t,i,s,e){this.type=2,this._$AH=A,this._$AN=void 0,this._$AA=t,this._$AB=i,this._$AM=s,this.options=e,this._$Cv=e?.isConnected??true;}get parentNode(){let t=this._$AA.parentNode;const i=this._$AM;return void 0!==i&&11===t?.nodeType&&(t=i.parentNode),t}get startNode(){return this._$AA}get endNode(){return this._$AB}_$AI(t,i=this){t=M(this,t,i),a(t)?t===A||null==t||""===t?(this._$AH!==A&&this._$AR(),this._$AH=A):t!==this._$AH&&t!==E&&this._(t):void 0!==t._$litType$?this.$(t):void 0!==t.nodeType?this.T(t):d(t)?this.k(t):this._(t);}O(t){return this._$AA.parentNode.insertBefore(t,this._$AB)}T(t){this._$AH!==t&&(this._$AR(),this._$AH=this.O(t));}_(t){this._$AH!==A&&a(this._$AH)?this._$AA.nextSibling.data=t:this.T(l.createTextNode(t)),this._$AH=t;}$(t){const{values:i,_$litType$:s}=t,e="number"==typeof s?this._$AC(t):(void 0===s.el&&(s.el=S.createElement(V(s.h,s.h[0]),this.options)),s);if(this._$AH?._$AD===e)this._$AH.p(i);else {const t=new R(e,this),s=t.u(this.options);t.p(i),this.T(s),this._$AH=t;}}_$AC(t){let i=C.get(t.strings);return void 0===i&&C.set(t.strings,i=new S(t)),i}k(t){u(this._$AH)||(this._$AH=[],this._$AR());const i=this._$AH;let s,e=0;for(const h of t)e===i.length?i.push(s=new k(this.O(c()),this.O(c()),this,this.options)):s=i[e],s._$AI(h),e++;e<i.length&&(this._$AR(s&&s._$AB.nextSibling,e),i.length=e);}_$AR(t=this._$AA.nextSibling,s){for(this._$AP?.(false,true,s);t!==this._$AB;){const s=i$1(t).nextSibling;i$1(t).remove(),t=s;}}setConnected(t){ void 0===this._$AM&&(this._$Cv=t,this._$AP?.(t));}}class H{get tagName(){return this.element.tagName}get _$AU(){return this._$AM._$AU}constructor(t,i,s,e,h){this.type=1,this._$AH=A,this._$AN=void 0,this.element=t,this.name=i,this._$AM=e,this.options=h,s.length>2||""!==s[0]||""!==s[1]?(this._$AH=Array(s.length-1).fill(new String),this.strings=s):this._$AH=A;}_$AI(t,i=this,s,e){const h=this.strings;let o=false;if(void 0===h)t=M(this,t,i,0),o=!a(t)||t!==this._$AH&&t!==E,o&&(this._$AH=t);else {const e=t;let n,r;for(t=h[0],n=0;n<h.length-1;n++)r=M(this,e[s+n],i,n),r===E&&(r=this._$AH[n]),o||=!a(r)||r!==this._$AH[n],r===A?t=A:t!==A&&(t+=(r??"")+h[n+1]),this._$AH[n]=r;}o&&!e&&this.j(t);}j(t){t===A?this.element.removeAttribute(this.name):this.element.setAttribute(this.name,t??"");}}class I extends H{constructor(){super(...arguments),this.type=3;}j(t){this.element[this.name]=t===A?void 0:t;}}class L extends H{constructor(){super(...arguments),this.type=4;}j(t){this.element.toggleAttribute(this.name,!!t&&t!==A);}}class z extends H{constructor(t,i,s,e,h){super(t,i,s,e,h),this.type=5;}_$AI(t,i=this){if((t=M(this,t,i,0)??A)===E)return;const s=this._$AH,e=t===A&&s!==A||t.capture!==s.capture||t.once!==s.once||t.passive!==s.passive,h=t!==A&&(s===A||e);e&&this.element.removeEventListener(this.name,this,s),h&&this.element.addEventListener(this.name,this,t),this._$AH=t;}handleEvent(t){"function"==typeof this._$AH?this._$AH.call(this.options?.host??this.element,t):this._$AH.handleEvent(t);}}class Z{constructor(t,i,s){this.element=t,this.type=6,this._$AN=void 0,this._$AM=i,this.options=s;}get _$AU(){return this._$AM._$AU}_$AI(t){M(this,t);}}const B=t.litHtmlPolyfillSupport;B?.(S,k),(t.litHtmlVersions??=[]).push("3.3.3");const D=(t,i,s)=>{const e=s?.renderBefore??i;let h=e._$litPart$;if(void 0===h){const t=s?.renderBefore??null;e._$litPart$=h=new k(i.insertBefore(c(),t),t,void 0,s??{});}return h._$AI(t),h};
 
 /**
  * @license
@@ -45,11 +45,11 @@ const STATE_LABELS = {
     hidden: "niewidoczny",
 };
 
-const rad$1 = (d) => (d * Math.PI) / 180;
+const rad$2 = (d) => (d * Math.PI) / 180;
 const deg$1 = (r) => (r * 180) / Math.PI;
 function basis(g) {
-    const az = rad$1(g.az_center);
-    const alt = rad$1(g.alt_center);
+    const az = rad$2(g.az_center);
+    const alt = rad$2(g.alt_center);
     const f = [Math.sin(az) * Math.cos(alt), Math.cos(az) * Math.cos(alt), Math.sin(alt)];
     const r = [Math.cos(az), -Math.sin(az), 0];
     const u = [-Math.sin(alt) * Math.sin(az), -Math.sin(alt) * Math.cos(az), Math.cos(alt)];
@@ -58,25 +58,25 @@ function basis(g) {
 const dot = (a, b) => a[0] * b[0] + a[1] * b[1] + a[2] * b[2];
 function project(g, az, alt) {
     const { f, r, u } = basis(g);
-    const a = rad$1(az);
-    const e = rad$1(alt);
+    const a = rad$2(az);
+    const e = rad$2(alt);
     const v = [Math.sin(a) * Math.cos(e), Math.cos(a) * Math.cos(e), Math.sin(e)];
     const c = dot(v, f);
     if (c <= 1e-9)
         return null;
     const px = dot(v, r) / c;
     const py = dot(v, u) / c;
-    const rho = rad$1(g.roll);
+    const rho = rad$2(g.roll);
     const qx = px * Math.cos(rho) + py * Math.sin(rho);
     const qy = -px * Math.sin(rho) + py * Math.cos(rho);
-    const th = Math.tan(rad$1(g.hfov) / 2);
+    const th = Math.tan(rad$2(g.hfov) / 2);
     return [0.5 + qx / (2 * th), 0.5 - (qy * g.aspect) / (2 * th)];
 }
 function unproject(g, x, y) {
-    const th = Math.tan(rad$1(g.hfov) / 2);
+    const th = Math.tan(rad$2(g.hfov) / 2);
     const qx = (x - 0.5) * 2 * th;
     const qy = (-(y - 0.5) * 2 * th) / g.aspect;
-    const rho = rad$1(g.roll);
+    const rho = rad$2(g.roll);
     const px = qx * Math.cos(rho) - qy * Math.sin(rho);
     const py = qx * Math.sin(rho) + qy * Math.cos(rho);
     const { f, r, u } = basis(g);
@@ -88,18 +88,18 @@ function unproject(g, x, y) {
 }
 
 const clamp = (x, lo, hi) => Math.min(hi, Math.max(lo, x));
-const wrap360 = (x) => ((x % 360) + 360) % 360;
+const wrap360$1 = (x) => ((x % 360) + 360) % 360;
 const MIN_FOV = 20;
 const MAX_FOV = 120;
 function viewGeometry(v, aspect) {
-    return { az_center: v.az, alt_center: v.alt, hfov: v.hfov, aspect, roll: 0 };
+    return { az_center: v.az, alt_center: v.alt, hfov: v.hfov, aspect, roll: v.roll ?? 0 };
 }
 function fromWindow(g) {
     return { az: g.az_center, alt: g.alt_center, hfov: clamp(g.hfov, MIN_FOV, MAX_FOV) };
 }
 /** Dragging right (dx>0) turns left; dragging down looks higher. */
 function panView(v, dx, dy, pxPerDeg) {
-    return { ...v, az: wrap360(v.az - dx / pxPerDeg), alt: clamp(v.alt + dy / pxPerDeg, -30, 89) };
+    return { ...v, az: wrap360$1(v.az - dx / pxPerDeg), alt: clamp(v.alt + dy / pxPerDeg, -30, 89) };
 }
 function zoomView(v, factor) {
     return { ...v, hfov: clamp(v.hfov * factor, MIN_FOV, MAX_FOV) };
@@ -21374,6 +21374,19 @@ var stars$1 = {
 	constellations: constellations
 };
 
+/** Image polygon (normalised x,y) -> az/alt polygon; every edge is split into `subdivide` pieces. */
+function polygonToSky(g, pts, subdivide = 8) {
+    const out = [];
+    for (let i = 0; i < pts.length; i++) {
+        const [x1, y1] = pts[i];
+        const [x2, y2] = pts[(i + 1) % pts.length];
+        for (let k = 0; k < subdivide; k++) {
+            const t = k / subdivide;
+            out.push(unproject(g, x1 + (x2 - x1) * t, y1 + (y2 - y1) * t));
+        }
+    }
+    return out;
+}
 /** az/alt polygon -> image polygon (vertices behind the camera are dropped). */
 function skyToPolygon(g, poly) {
     const out = [];
@@ -21385,7 +21398,7 @@ function skyToPolygon(g, poly) {
     return out;
 }
 
-const rad = (d) => (d * Math.PI) / 180;
+const rad$1 = (d) => (d * Math.PI) / 180;
 const deg = (r) => (r * 180) / Math.PI;
 const mod = (x, m) => ((x % m) + m) % m;
 const julianDate = (date) => date.getTime() / 86400000 + 2440587.5;
@@ -21399,20 +21412,20 @@ function localSiderealTime(date, lonDeg) {
 /** Precess J2000 equatorial coordinates (degrees) to the equinox of `date`. */
 function precess(raDeg, decDeg, date) {
     const T = (julianDate(date) - 2451545.0) / 36525;
-    const zeta = rad((2306.2181 * T + 0.30188 * T * T + 0.017998 * T ** 3) / 3600);
-    const z = rad((2306.2181 * T + 1.09468 * T * T + 0.018203 * T ** 3) / 3600);
-    const theta = rad((2004.3109 * T - 0.42665 * T * T - 0.041833 * T ** 3) / 3600);
-    const a = rad(raDeg);
-    const d = rad(decDeg);
+    const zeta = rad$1((2306.2181 * T + 0.30188 * T * T + 0.017998 * T ** 3) / 3600);
+    const z = rad$1((2306.2181 * T + 1.09468 * T * T + 0.018203 * T ** 3) / 3600);
+    const theta = rad$1((2004.3109 * T - 0.42665 * T * T - 0.041833 * T ** 3) / 3600);
+    const a = rad$1(raDeg);
+    const d = rad$1(decDeg);
     const A = Math.cos(d) * Math.sin(a + zeta);
     const B = Math.cos(theta) * Math.cos(d) * Math.cos(a + zeta) - Math.sin(theta) * Math.sin(d);
     const C = Math.sin(theta) * Math.cos(d) * Math.cos(a + zeta) + Math.cos(theta) * Math.sin(d);
     return [mod(deg(Math.atan2(A, B)) + deg(z), 360), deg(Math.asin(C))];
 }
 function raDecToAltAz(raDeg, decDeg, latDeg, lstDeg) {
-    const H = rad(lstDeg - raDeg);
-    const d = rad(decDeg);
-    const p = rad(latDeg);
+    const H = rad$1(lstDeg - raDeg);
+    const d = rad$1(decDeg);
+    const p = rad$1(latDeg);
     const sinAlt = Math.sin(d) * Math.sin(p) + Math.cos(d) * Math.cos(p) * Math.cos(H);
     const alt = deg(Math.asin(sinAlt));
     const az = mod(deg(Math.atan2(-Math.cos(d) * Math.sin(H), Math.sin(d) * Math.cos(p) - Math.cos(d) * Math.sin(p) * Math.cos(H))), 360);
@@ -21544,6 +21557,762 @@ function bodiesAt(sky, index) {
         out[id] = pts[index];
     return out;
 }
+
+/** DateTimeOriginal (and OffsetTimeOriginal) from a JPEG; null when absent or not a JPEG. */
+function readExifDate(buf) {
+    const v = new DataView(buf);
+    if (v.byteLength < 4 || v.getUint16(0) !== 0xffd8)
+        return null;
+    let p = 2;
+    while (p + 4 <= v.byteLength) {
+        if (v.getUint8(p) !== 0xff)
+            return null;
+        const marker = v.getUint8(p + 1);
+        if (marker === 0xd9 || marker === 0xda)
+            return null; // end of image / start of scan
+        const len = v.getUint16(p + 2);
+        if (marker === 0xe1 && p + 10 <= v.byteLength && v.getUint32(p + 4) === 0x45786966) {
+            return parseTiff(v, p + 10);
+        }
+        p += 2 + len;
+    }
+    return null;
+}
+function parseTiff(v, base) {
+    if (base + 8 > v.byteLength)
+        return null;
+    const le = v.getUint16(base) === 0x4949;
+    const u16 = (o) => v.getUint16(base + o, le);
+    const u32 = (o) => v.getUint32(base + o, le);
+    const ascii = (o, n) => {
+        let s = "";
+        for (let i = 0; i < n; i++) {
+            const c = v.getUint8(base + o + i);
+            if (c === 0)
+                break;
+            s += String.fromCharCode(c);
+        }
+        return s;
+    };
+    const entries = (ifd) => {
+        const out = new Map();
+        if (base + ifd + 2 > v.byteLength)
+            return out;
+        const n = u16(ifd);
+        for (let i = 0; i < n; i++) {
+            const e = ifd + 2 + 12 * i;
+            if (base + e + 12 > v.byteLength)
+                break;
+            out.set(u16(e), { type: u16(e + 2), count: u32(e + 4), value: u32(e + 8) });
+        }
+        return out;
+    };
+    try {
+        const ptr = entries(u32(4)).get(0x8769);
+        if (!ptr)
+            return null;
+        const exif = entries(ptr.value);
+        const dt = exif.get(0x9003);
+        if (!dt)
+            return null;
+        const off = exif.get(0x9011);
+        const str = (e) => (e.count <= 4 ? "" : ascii(e.value, e.count));
+        const local = str(dt);
+        if (!/^\d{4}:\d\d:\d\d \d\d:\d\d:\d\d$/.test(local))
+            return null;
+        const offset = off ? str(off) : "";
+        return { local, offset: /^[+-]\d\d:\d\d$/.test(offset) ? offset : null };
+    }
+    catch {
+        return null;
+    }
+}
+function parts(local) {
+    const [d, t] = local.split(" ");
+    const [Y, M, D] = d.split(":").map(Number);
+    const [h, m, s] = t.split(":").map(Number);
+    return [Y, M - 1, D, h, m, s];
+}
+/** Wall-clock time in `timeZone` for a UTC instant, expressed as a UTC timestamp. */
+function zoned(utcMs, timeZone) {
+    const f = new Intl.DateTimeFormat("en-US", {
+        timeZone, hourCycle: "h23", year: "numeric", month: "2-digit", day: "2-digit",
+        hour: "2-digit", minute: "2-digit", second: "2-digit",
+    });
+    const p = Object.fromEntries(f.formatToParts(new Date(utcMs)).map((x) => [x.type, x.value]));
+    return Date.UTC(+p.year, +p.month - 1, +p.day, +p.hour, +p.minute, +p.second);
+}
+/** Convert EXIF local time to UTC: explicit offset first, otherwise the HA time zone. */
+function exifToUtc(e, timeZone) {
+    const [Y, M, D, h, m, s] = parts(e.local);
+    const wall = Date.UTC(Y, M, D, h, m, s);
+    if (e.offset) {
+        const sign = e.offset[0] === "-" ? -1 : 1;
+        const [oh, om] = e.offset.slice(1).split(":").map(Number);
+        return new Date(wall - sign * (oh * 60 + om) * 60000);
+    }
+    let guess = wall;
+    for (let i = 0; i < 2; i++)
+        guess = wall - (zoned(guess, timeZone) - guess);
+    return new Date(guess);
+}
+
+const rad = (d) => (d * Math.PI) / 180;
+const wrap360 = (x) => ((x % 360) + 360) % 360;
+function angularDistance(a, b) {
+    const c = Math.sin(rad(a.alt)) * Math.sin(rad(b.alt)) +
+        Math.cos(rad(a.alt)) * Math.cos(rad(b.alt)) * Math.cos(rad(a.az - b.az));
+    return (Math.acos(Math.min(1, Math.max(-1, c))) * 180) / Math.PI;
+}
+function linSolve(A, b) {
+    const n = b.length;
+    const M = A.map((r, i) => [...r, b[i]]);
+    for (let c = 0; c < n; c++) {
+        let p = c;
+        for (let r = c + 1; r < n; r++)
+            if (Math.abs(M[r][c]) > Math.abs(M[p][c]))
+                p = r;
+        [M[c], M[p]] = [M[p], M[c]];
+        for (let r = 0; r < n; r++) {
+            if (r === c || M[c][c] === 0)
+                continue;
+            const f = M[r][c] / M[c][c];
+            for (let k = c; k <= n; k++)
+                M[r][k] -= f * M[c][k];
+        }
+    }
+    return M.map((r, i) => (r[i] === 0 ? 0 : r[n] / r[i]));
+}
+/**
+ * Fit the window geometry to clicked matches.
+ * 1 match: az_center, alt_center. 2+ matches: also hfov and roll.
+ */
+function solveGeometry(start, matches) {
+    if (matches.length === 0)
+        return { fail: "Wskaż przynajmniej jeden obiekt na zdjęciu." };
+    for (let i = 0; i < matches.length; i++) {
+        for (let j = i + 1; j < matches.length; j++) {
+            const a = matches[i];
+            const b = matches[j];
+            if (angularDistance(a, b) < 3 || Math.hypot(a.x - b.x, a.y - b.y) < 0.05) {
+                return { fail: "Wybrane obiekty są za blisko siebie – wybierz dwa oddalone od siebie." };
+            }
+        }
+    }
+    const full = matches.length >= 2;
+    const toGeo = (p) => ({
+        ...start,
+        az_center: wrap360(p[0]),
+        alt_center: Math.max(-10, Math.min(90, p[1])),
+        hfov: full ? Math.max(10, Math.min(120, p[2])) : start.hfov,
+        roll: full ? p[3] : start.roll,
+    });
+    const residuals = (p) => {
+        const g = toGeo(p);
+        const r = [];
+        for (const m of matches) {
+            const q = project(g, m.az, m.alt);
+            if (!q)
+                r.push(10, 10);
+            else
+                r.push(q[0] - m.x, q[1] - m.y);
+        }
+        return r;
+    };
+    const cost = (r) => r.reduce((s, x) => s + x * x, 0);
+    let p = full ? [start.az_center, start.alt_center, start.hfov, start.roll] : [start.az_center, start.alt_center];
+    let r = residuals(p);
+    let lambda = 1e-3;
+    for (let it = 0; it < 50; it++) {
+        const h = 1e-4;
+        const J = r.map(() => new Array(p.length).fill(0));
+        for (let k = 0; k < p.length; k++) {
+            const q = [...p];
+            q[k] += h;
+            const rk = residuals(q);
+            for (let i = 0; i < r.length; i++)
+                J[i][k] = (rk[i] - r[i]) / h;
+        }
+        const JtJ = p.map((_, a) => p.map((__, b) => J.reduce((s, row) => s + row[a] * row[b], 0)));
+        const Jtr = p.map((_, a) => J.reduce((s, row, i) => s + row[a] * r[i], 0));
+        for (let a = 0; a < p.length; a++)
+            JtJ[a][a] *= 1 + lambda;
+        const step = linSolve(JtJ, Jtr.map((x) => -x));
+        const cand = p.map((x, i) => x + step[i]);
+        const rc = residuals(cand);
+        if (cost(rc) < cost(r)) {
+            p = cand;
+            r = rc;
+            lambda = Math.max(1e-7, lambda / 3);
+            if (Math.max(...step.map(Math.abs)) < 1e-7)
+                break;
+        }
+        else {
+            lambda *= 5;
+        }
+    }
+    const error = Math.sqrt(cost(r) / matches.length);
+    if (!Number.isFinite(error) || error > 0.01) {
+        return { fail: "Nie udało się dopasować zdjęcia – sprawdź, czy kliknięte obiekty są właściwe." };
+    }
+    return { geometry: toGeo(p), error };
+}
+
+function initWizard(data, existingPhotoUrl) {
+    return {
+        step: "photo",
+        photo: { blobUrl: existingPhotoUrl || undefined, needsTime: false, deleted: false },
+        geometry: { ...data.geometry },
+        matches: [],
+        polys: data.obstructions.map((p) => skyToPolygon(data.geometry, p)).filter((p) => p.length >= 3),
+        opacity: data.photo_opacity ?? 0.6,
+        error: "",
+    };
+}
+function setPhoto(s, p) {
+    const time = p.exif ? exifToUtc(p.exif, p.timeZone) : undefined;
+    return {
+        ...s,
+        photo: { blob: p.blob, blobUrl: p.blobUrl, aspect: p.aspect, time, needsTime: !time, deleted: false },
+        geometry: { ...s.geometry, aspect: p.aspect },
+        matches: [],
+        error: "",
+    };
+}
+function setPhotoTime(s, time) {
+    return { ...s, photo: { ...s.photo, time, needsTime: false } };
+}
+function skipPhoto(s) {
+    return { ...s, photo: { needsTime: false, deleted: !!s.photo.blobUrl, blobUrl: undefined } };
+}
+const hasPhoto = (s) => !!s.photo.blobUrl && !s.photo.deleted;
+function canNext(s) {
+    if (s.step === "photo")
+        return !(hasPhoto(s) && s.photo.blob && s.photo.needsTime);
+    if (s.step === "stars")
+        return s.matches.length > 0 && !s.error;
+    return s.step !== "preview";
+}
+const ORDER = {
+    photo: (s) => (hasPhoto(s) ? "method" : "compass"),
+    method: (s) => (s.method === "stars" ? "stars" : "compass"),
+    stars: () => "obstructions",
+    compass: () => "obstructions",
+    obstructions: () => "preview",
+    preview: () => "preview",
+};
+function next(s) {
+    if (!canNext(s))
+        return s;
+    const step = ORDER[s.step](s);
+    return { ...s, step, method: step === "compass" ? "compass" : s.method, error: "" };
+}
+function back(s) {
+    const prev = {
+        photo: "photo",
+        method: "photo",
+        stars: "method",
+        compass: hasPhoto(s) ? "method" : "photo",
+        obstructions: s.method === "stars" ? "stars" : "compass",
+        preview: "obstructions",
+    };
+    return { ...s, step: prev[s.step], error: "" };
+}
+function chooseMethod(s, method) {
+    return next({ ...s, method });
+}
+/** Add a clicked object (max 2 – a third replaces the oldest) and re-solve. */
+function addMatch(s, m) {
+    const matches = [...s.matches, m].slice(-2);
+    const r = solveGeometry(s.geometry, matches);
+    if ("fail" in r)
+        return { ...s, error: r.fail };
+    return { ...s, matches, geometry: r.geometry, error: "" };
+}
+function clearMatches(s) {
+    return { ...s, matches: [], error: "" };
+}
+/** Frame altitude that puts the horizon at normalised height y (roll ignored). */
+function horizonToAlt(g, y) {
+    const th = Math.tan((g.hfov * Math.PI) / 360);
+    return (Math.atan(((y - 0.5) * 2 * th) / g.aspect) * 180) / Math.PI;
+}
+function altToHorizon(g) {
+    const th = Math.tan((g.hfov * Math.PI) / 360);
+    return 0.5 + (Math.tan((g.alt_center * Math.PI) / 180) * g.aspect) / (2 * th);
+}
+function savePayload(s) {
+    return {
+        geometry: s.geometry,
+        obstructions: s.polys.filter((p) => p.length >= 3).map((p) => polygonToSky(s.geometry, p, 1)),
+        photo_opacity: s.opacity,
+    };
+}
+
+const STEPS = [
+    ["photo", "Zdjęcie"],
+    ["method", "Metoda"],
+    ["stars", "Gwiazdy"],
+    ["compass", "Kompas"],
+    ["obstructions", "Przeszkody"],
+    ["preview", "Podgląd"],
+];
+const pad = (n) => String(n).padStart(2, "0");
+const toLocalInput = (d) => `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}T${pad(d.getHours())}:${pad(d.getMinutes())}`;
+class MapaNiebaWizard extends i {
+    constructor() {
+        super(...arguments);
+        this.photoUrl = "";
+        this._selected = null;
+        this._draft = null;
+        this._saving = false;
+        this._msg = "";
+        this._previewMin = 180;
+        this._dragHorizon = false;
+    }
+    connectedCallback() {
+        super.connectedCallback();
+        if (!this.state && this.data)
+            this.state = initWizard(this.data, this.photoUrl);
+    }
+    // ---------------------------------------------------------------- actions
+    _close() {
+        this.dispatchEvent(new CustomEvent("close"));
+    }
+    async _onFile(file) {
+        const buf = await file.arrayBuffer();
+        const exif = readExifDate(buf);
+        const blobUrl = URL.createObjectURL(file);
+        const aspect = await new Promise((resolve) => {
+            const img = new Image();
+            img.onload = () => resolve(img.naturalWidth / img.naturalHeight || 4 / 3);
+            img.onerror = () => resolve(4 / 3);
+            img.src = blobUrl;
+        });
+        this.state = setPhoto(this.state, {
+            blob: file, blobUrl, aspect, exif, timeZone: this.hass?.config?.time_zone || "UTC",
+        });
+    }
+    async _goNext() {
+        this.state = next(this.state);
+        await this._enter();
+    }
+    async _choose(method) {
+        this.state = chooseMethod(this.state, method);
+        await this._enter();
+    }
+    async _enter() {
+        const s = this.state;
+        try {
+            if (s.step === "stars" && s.photo.time) {
+                const r = await this.hass.callWS({ type: "mapa_nieba/sky", times: [s.photo.time.toISOString()] });
+                this._at = { time: s.photo.time, bodies: bodiesAt(r, 0), sunAlt: r.sun_alt[0] };
+            }
+            if (s.step === "preview" && !this._preview) {
+                const base = new Date();
+                base.setHours(18, 0, 0, 0);
+                const times = Array.from({ length: 73 }, (_, i) => new Date(base.getTime() + i * 600000).toISOString());
+                this._preview = { base, sky: await this.hass.callWS({ type: "mapa_nieba/sky", times }) };
+            }
+        }
+        catch (e) {
+            this._msg = e?.message || "Nie udało się pobrać pozycji obiektów";
+        }
+    }
+    _candidates() {
+        if (!this._at)
+            return [];
+        const { lat, lon } = this.data.observer;
+        const lst = localSiderealTime(this._at.time, lon);
+        const out = [];
+        for (const [id, aa] of Object.entries(this._at.bodies)) {
+            if (aa && aa[0] > 0 && SOLAR[id])
+                out.push({ id, name: SOLAR[id].name, alt: aa[0], az: aa[1] });
+        }
+        const names = new Map(this.data.objects.map((o) => [o.id, o.name]));
+        for (const [id, [ra, dec]] of Object.entries(NAMED)) {
+            const [r2, d2] = precess(ra, dec, this._at.time);
+            const { alt, az } = raDecToAltAz(r2, d2, lat, lst);
+            if (alt > 0)
+                out.push({ id, name: names.get(id) ?? id[0].toUpperCase() + id.slice(1), alt, az });
+        }
+        return out.sort((a, b) => b.alt - a.alt);
+    }
+    _framePoint(e) {
+        const r = e.currentTarget.getBoundingClientRect();
+        return [(e.clientX - r.left) / r.width, (e.clientY - r.top) / r.height];
+    }
+    _clickStars(e) {
+        const c = this._candidates().find((x) => x.id === this._selected);
+        if (!c) {
+            this._msg = "Najpierw wybierz obiekt z listy, potem kliknij go na zdjęciu.";
+            return;
+        }
+        const [x, y] = this._framePoint(e);
+        this.state = addMatch(this.state, { az: c.az, alt: c.alt, x, y });
+        this._selected = null;
+        this._msg = "";
+    }
+    _clickObstruction(e) {
+        if (!this._draft)
+            return;
+        this._draft = [...this._draft, this._framePoint(e)];
+    }
+    _closeDraft() {
+        if (this._draft && this._draft.length >= 3)
+            this.state = { ...this.state, polys: [...this.state.polys, this._draft] };
+        this._draft = null;
+    }
+    _setGeo(patch) {
+        this.state = { ...this.state, geometry: { ...this.state.geometry, ...patch } };
+    }
+    _dial(e) {
+        if (e.type === "pointermove" && !(e.buttons & 1))
+            return;
+        const r = e.currentTarget.getBoundingClientRect();
+        const dx = e.clientX - (r.left + r.width / 2);
+        const dy = e.clientY - (r.top + r.height / 2);
+        this._setGeo({ az_center: Math.round(((Math.atan2(dx, -dy) * 180) / Math.PI + 360) % 360) });
+    }
+    _horizon(e) {
+        if (e.type === "pointerdown") {
+            this._dragHorizon = true;
+            e.currentTarget.setPointerCapture?.(e.pointerId);
+        }
+        if (e.type === "pointerup")
+            this._dragHorizon = false;
+        if (!this._dragHorizon)
+            return;
+        const [, y] = this._framePoint(e);
+        this._setGeo({ alt_center: Math.max(-10, Math.min(60, horizonToAlt(this.state.geometry, y))) });
+    }
+    async _save() {
+        this._saving = true;
+        this._msg = "";
+        try {
+            const s = this.state;
+            if (s.photo.blob && !s.photo.deleted) {
+                const init = { method: "POST", body: s.photo.blob, headers: { "Content-Type": s.photo.blob.type || "image/jpeg" } };
+                const resp = this.hass.fetchWithAuth
+                    ? await this.hass.fetchWithAuth("/api/mapa_nieba/photo", init)
+                    : await fetch("/api/mapa_nieba/photo", {
+                        ...init,
+                        headers: { ...init.headers, Authorization: `Bearer ${this.hass.auth?.data?.access_token}` },
+                    });
+                if (!resp.ok)
+                    throw new Error((await resp.text?.()) || "Nie udało się wgrać zdjęcia");
+            }
+            await this.hass.callWS({
+                type: "mapa_nieba/save_geometry",
+                ...savePayload(s),
+                ...(s.photo.deleted ? { delete_photo: true } : {}),
+            });
+            this.dispatchEvent(new CustomEvent("saved"));
+        }
+        catch (e) {
+            this._msg = e?.message || "Zapis nie powiódł się";
+        }
+        finally {
+            this._saving = false;
+        }
+    }
+    // ---------------------------------------------------------------- drawing
+    updated() {
+        const c = this.renderRoot.querySelector("canvas.wz");
+        if (!c)
+            return;
+        const frame = c.parentElement;
+        const w = frame.clientWidth;
+        const h = frame.clientHeight;
+        if (!w || !h)
+            return;
+        const dpr = Math.min(2, window.devicePixelRatio || 1);
+        c.width = w * dpr;
+        c.height = h * dpr;
+        c.style.width = `${w}px`;
+        c.style.height = `${h}px`;
+        const ctx = c.getContext("2d");
+        if (!ctx)
+            return;
+        ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+        const g = this.state.geometry;
+        const view = { az: g.az_center, alt: g.alt_center, hfov: g.hfov, roll: g.roll };
+        const data = { ...this.data, obstructions: [] };
+        if (this.state.step === "stars" && this._at) {
+            const scene = buildScene(data, this._at.bodies, this._at.time, view, w, h, -30);
+            ctx.clearRect(0, 0, w, h);
+            for (const st of scene.stars) {
+                ctx.fillStyle = "rgba(120,200,255,0.75)";
+                ctx.beginPath();
+                ctx.arc(st.x, st.y, Math.max(1.2, st.r * 0.8), 0, Math.PI * 2);
+                ctx.fill();
+            }
+            ctx.font = "12px system-ui, sans-serif";
+            for (const cnd of this._candidates()) {
+                const p = project(g, cnd.az, cnd.alt);
+                if (!p)
+                    continue;
+                const sel = cnd.id === this._selected;
+                ctx.strokeStyle = sel ? "#ffd166" : "rgba(255,255,255,0.8)";
+                ctx.lineWidth = sel ? 2 : 1;
+                ctx.beginPath();
+                ctx.arc(p[0] * w, p[1] * h, 9, 0, Math.PI * 2);
+                ctx.stroke();
+                ctx.fillStyle = "#fff";
+                ctx.fillText(cnd.name, p[0] * w + 12, p[1] * h + 4);
+            }
+            for (const m of this.state.matches) {
+                ctx.strokeStyle = "#7CFC9A";
+                ctx.lineWidth = 2;
+                ctx.beginPath();
+                ctx.moveTo(m.x * w - 10, m.y * h);
+                ctx.lineTo(m.x * w + 10, m.y * h);
+                ctx.moveTo(m.x * w, m.y * h - 10);
+                ctx.lineTo(m.x * w, m.y * h + 10);
+                ctx.stroke();
+            }
+        }
+        else if (this.state.step === "preview" && this._preview) {
+            const idx = Math.round(this._previewMin / 10);
+            const sky = this._preview.sky;
+            const date = new Date(this._preview.base.getTime() + this._previewMin * 60000);
+            const sunAlt = sky.sun_alt[idx];
+            const scene = buildScene(data, bodiesAt(sky, idx), date, view, w, h, sunAlt);
+            drawSky(ctx, scene, skyColors(sunAlt), w, h);
+            const over = this.renderRoot.querySelector("canvas.wz-over");
+            const octx = over?.getContext("2d");
+            if (over && octx) {
+                over.width = w * dpr;
+                over.height = h * dpr;
+                over.style.width = `${w}px`;
+                over.style.height = `${h}px`;
+                octx.setTransform(dpr, 0, 0, dpr, 0, 0);
+                drawOverlay(octx, scene, new Set(), null, null, w, h);
+            }
+        }
+    }
+    render() {
+        const s = this.state;
+        if (!s)
+            return A;
+        const shown = STEPS.filter(([id]) => !(id === "method" && !hasPhoto(s)) && !(id === "stars" && s.method === "compass") && !(id === "compass" && s.method === "stars"));
+        return b `<div class="backdrop" @click=${(e) => e.target === e.currentTarget && this._close()}>
+      <div class="panel">
+        <header>
+          <h2>Kreator widoku</h2>
+          ${shown.map(([id, label]) => b `<span class="chip ${id === s.step ? "on" : ""}">${label}</span>`)}
+          <button class="x" title="Zamknij" @click=${() => this._close()}>×</button>
+        </header>
+        ${this._step()}
+        ${s.error || this._msg ? b `<div class="msg">${s.error || this._msg}</div>` : A}
+        <footer>
+          <button ?disabled=${s.step === "photo"} @click=${() => { this.state = back(s); this._draft = null; }}>← Wstecz</button>
+          ${s.step === "preview"
+            ? b `<button class="primary" ?disabled=${this._saving} @click=${() => this._save()}>${this._saving ? "Zapisuję…" : "Zapisz"}</button>`
+            : s.step === "method"
+                ? A
+                : b `<button class="primary" ?disabled=${!canNext(s)} @click=${() => this._goNext()}>Dalej →</button>`}
+        </footer>
+      </div>
+    </div>`;
+    }
+    _frame(content, onClick, extra = "") {
+        const s = this.state;
+        const src = hasPhoto(s) ? s.photo.blobUrl : "";
+        return b `<div class="frame" style="aspect-ratio:${s.geometry.aspect};${extra}" @click=${onClick ?? (() => undefined)}>
+      ${src ? b `<img src=${src} alt="" style="opacity:${s.step === "preview" ? s.opacity : 1}"/>` : A}
+      ${content}
+    </div>`;
+    }
+    _step() {
+        const s = this.state;
+        switch (s.step) {
+            case "photo": return this._stepPhoto();
+            case "method": return b `<p class="hint">Jak dopasować kierunek zdjęcia do nieba?</p>
+        <div class="methods">
+          <button @click=${() => this._choose("stars")}><b>⭐ Po gwiazdach</b>Zdjęcie nocne z jasną planetą lub gwiazdą. Klikasz 1–2 obiekty – najdokładniej.</button>
+          <button @click=${() => this._choose("compass")}><b>🧭 Po kompasie</b>Zdjęcie dzienne. Ustawiasz kierunek, horyzont i kąt widzenia.</button>
+        </div>`;
+            case "stars": return this._stepStars();
+            case "compass": return this._stepCompass();
+            case "obstructions": return this._stepObstructions();
+            case "preview": return this._stepPreview();
+        }
+    }
+    _stepPhoto() {
+        const s = this.state;
+        return b `
+      <p class="hint">Zdjęcie jest opcjonalne. Najlepiej nocne, zrobione z miejsca, z którego patrzysz.</p>
+      ${hasPhoto(s)
+            ? b `${this._frame(A, undefined, "max-height:40vh;cursor:default")}`
+            : b `<label class="drop" @dragover=${(e) => e.preventDefault()}
+                 @drop=${(e) => { e.preventDefault(); const f = e.dataTransfer?.files[0]; if (f)
+                void this._onFile(f); }}>
+                 Przeciągnij zdjęcie tutaj albo kliknij, aby wybrać<br/>
+                 <input type="file" accept="image/*" style="margin-top:10px"
+                   @change=${(e) => { const f = e.target.files?.[0]; if (f)
+                void this._onFile(f); }}/>
+               </label>`}
+      ${hasPhoto(s) && s.photo.blob
+            ? b `<label>Kiedy zrobiono zdjęcie ${s.photo.needsTime ? b `<b>(brak w pliku – podaj)</b>` : "(odczytane z pliku)"}</label>
+               <input type="datetime-local" .value=${s.photo.time ? toLocalInput(s.photo.time) : ""}
+                 @change=${(e) => { const v = e.target.value; if (v)
+                this.state = setPhotoTime(this.state, new Date(v)); }}/>`
+            : A}
+      ${hasPhoto(s)
+            ? b `<label>Przezroczystość zdjęcia na mapie: ${Math.round(s.opacity * 100)}%</label>
+               <input type="range" min="0.1" max="1" step="0.05" .value=${String(s.opacity)}
+                 @input=${(e) => (this.state = { ...this.state, opacity: Number(e.target.value) })}/>
+               <div style="margin-top:8px;display:flex;gap:8px">
+                 <label class="chip" style="cursor:pointer">Zmień zdjęcie
+                   <input type="file" accept="image/*" hidden @change=${(e) => { const f = e.target.files?.[0]; if (f)
+                void this._onFile(f); }}/></label>
+                 <button @click=${() => (this.state = skipPhoto(this.state))}>Usuń zdjęcie</button>
+               </div>`
+            : b `<div style="margin-top:10px"><button @click=${() => { this.state = skipPhoto(this.state); void this._goNext(); }}>Bez zdjęcia →</button></div>`}`;
+    }
+    _stepStars() {
+        const s = this.state;
+        const cands = this._candidates();
+        return b `
+      <p class="hint">Wybierz obiekt z listy i kliknij, gdzie jest na zdjęciu. Drugi obiekt ustawi też zoom i przekrzywienie.
+        Niebieskie kropki to gwiazdy z obliczeń – po dopasowaniu powinny leżeć na prawdziwych.</p>
+      <div class="cands">${cands.length
+            ? cands.slice(0, 16).map((c) => b `<button class=${c.id === this._selected ? "sel" : ""} @click=${() => (this._selected = c.id)}>${c.name}</button>`)
+            : b `<span class="hint">Ładowanie pozycji obiektów…</span>`}
+        ${s.matches.length ? b `<button @click=${() => (this.state = clearMatches(this.state))}>Wyczyść punkty</button>` : A}
+      </div>
+      ${this._frame(b `<canvas class="wz"></canvas>`, (e) => this._clickStars(e))}
+      <p class="hint">Dopasowane punkty: ${s.matches.length}/2 · kierunek ${s.geometry.az_center.toFixed(1)}°, wysokość ${s.geometry.alt_center.toFixed(1)}°, kąt ${s.geometry.hfov.toFixed(1)}°</p>`;
+    }
+    _stepCompass() {
+        const g = this.state.geometry;
+        const rad = (d) => (d * Math.PI) / 180;
+        const pt = (az, r) => [85 + r * Math.sin(rad(az)), 85 - r * Math.cos(rad(az))];
+        const [nx, ny] = pt(g.az_center, 62);
+        const marks = [
+            ["Wschód Słońca", this.rises?.sun?.az, "#ffd166"],
+            ["Wschód Księżyca", this.rises?.moon?.az, "#cfd8ff"],
+        ].filter(([, az]) => az !== undefined && az !== null);
+        const hy = altToHorizon(g) * 100;
+        return b `<div class="row">
+      <div>
+        <svg class="dial" viewBox="0 0 170 170" @pointerdown=${this._dial} @pointermove=${this._dial}>
+          <circle cx="85" cy="85" r="80" fill="#121a38" stroke="rgba(255,255,255,.25)"/>
+          ${["N", "E", "S", "W"].map((t, i) => { const [x, y] = pt(i * 90, 68); return w `<text x=${x} y=${y + 4} fill="#aab3d9" font-size="12" text-anchor="middle">${t}</text>`; })}
+          ${marks.map(([, az, col]) => { const [x, y] = pt(az, 78); return w `<circle cx=${x} cy=${y} r="4" fill=${col}/>`; })}
+          <line x1="85" y1="85" x2=${nx} y2=${ny} stroke="#ffb347" stroke-width="4" stroke-linecap="round"/>
+          <circle cx="85" cy="85" r="5" fill="#ffb347"/>
+        </svg>
+        <label>Azymut środka kadru (°)</label>
+        <input type="number" min="0" max="359" .value=${String(Math.round(g.az_center))}
+          @change=${(e) => this._setGeo({ az_center: ((Number(e.target.value) % 360) + 360) % 360 })}/>
+        ${marks.map(([n, az, col]) => b `<div class="hint"><span style="color:${col}">●</span> ${n}: ${Math.round(az)}°</div>`)}
+      </div>
+      <div class="grow">
+        <p class="hint">Przeciągnij zieloną linię na horyzont widoczny na zdjęciu.</p>
+        ${this._frame(w `<svg viewBox="0 0 100 100" preserveAspectRatio="none" style="cursor:ns-resize"
+            @pointerdown=${this._horizon} @pointermove=${this._horizon} @pointerup=${this._horizon}>
+            <line x1="0" x2="100" y1=${hy} y2=${hy} stroke="#3ddc97" stroke-width="0.8" stroke-dasharray="2 1.5" vector-effect="non-scaling-stroke"/>
+          </svg>`)}
+        <label>Kąt widzenia (°)</label>
+        <div style="display:flex;gap:6px;align-items:center;flex-wrap:wrap">
+          <button @click=${() => this._setGeo({ hfov: 67 })}>Telefon · zwykły</button>
+          <button @click=${() => this._setGeo({ hfov: 105 })}>Szeroki kąt</button>
+          <input type="number" min="10" max="120" .value=${String(Math.round(g.hfov))}
+            @change=${(e) => this._setGeo({ hfov: Math.max(10, Math.min(120, Number(e.target.value))) })}/>
+        </div>
+        <label>Przekrzywienie: ${g.roll.toFixed(1)}°</label>
+        <input type="range" min="-30" max="30" step="0.5" .value=${String(g.roll)}
+          @input=${(e) => this._setGeo({ roll: Number(e.target.value) })}/>
+      </div>
+    </div>`;
+    }
+    _stepObstructions() {
+        const s = this.state;
+        const pts = (p) => p.map(([x, y]) => `${x * 100},${y * 100}`).join(" ");
+        return b `
+      <p class="hint">Zaznacz to, co zasłania niebo (słupek, budynek, drzewo): klikaj narożniki, potem „Zamknij kształt”. Krok można pominąć.</p>
+      ${this._frame(w `<svg viewBox="0 0 100 100" preserveAspectRatio="none">
+          ${s.polys.map((p) => w `<polygon points=${pts(p)} fill="rgba(0,0,0,.5)" stroke="#ff7b7b" stroke-width="0.4" vector-effect="non-scaling-stroke"/>`)}
+          ${this._draft ? w `<polyline points=${pts(this._draft)} fill="none" stroke="#ffd166" stroke-width="0.6" vector-effect="non-scaling-stroke"/>` : A}
+        </svg>`, (e) => this._clickObstruction(e))}
+      <div class="polys">
+        ${this._draft
+            ? b `<button class="primary" @click=${() => this._closeDraft()}>Zamknij kształt</button>
+                 <button @click=${() => (this._draft = null)}>Anuluj</button>`
+            : b `<button @click=${() => (this._draft = [])}>+ Dodaj przeszkodę</button>`}
+        ${s.polys.map((_, i) => b `<button @click=${() => (this.state = { ...s, polys: s.polys.filter((__, j) => j !== i) })}>Przeszkoda ${i + 1} ×</button>`)}
+      </div>`;
+    }
+    _stepPreview() {
+        const t = this._preview ? new Date(this._preview.base.getTime() + this._previewMin * 60000) : null;
+        return b `
+      <p class="hint">Tak będzie wyglądać dzisiejsza noc w Twoim kadrze. Przesuń suwak, żeby zobaczyć ruch nieba.</p>
+      <div class="frame" style="aspect-ratio:${this.state.geometry.aspect};cursor:default">
+        <canvas class="wz"></canvas>
+        ${hasPhoto(this.state) ? b `<img src=${this.state.photo.blobUrl} alt="" style="opacity:${this.state.opacity}"/>` : A}
+        <canvas class="wz-over"></canvas>
+      </div>
+      <input type="range" min="0" max="720" step="10" .value=${String(this._previewMin)}
+        @input=${(e) => (this._previewMin = Number(e.target.value))}/>
+      <div class="hint">${t ? t.toLocaleString("pl-PL", { weekday: "short", hour: "2-digit", minute: "2-digit" }) : "Ładowanie…"}</div>`;
+    }
+}
+MapaNiebaWizard.properties = {
+    hass: { attribute: false },
+    data: { attribute: false },
+    photoUrl: { attribute: false },
+    rises: { attribute: false },
+    state: { state: true },
+    _at: { state: true },
+    _selected: { state: true },
+    _draft: { state: true },
+    _saving: { state: true },
+    _msg: { state: true },
+    _previewMin: { state: true },
+    _preview: { state: true },
+};
+// ---------------------------------------------------------------- render
+MapaNiebaWizard.styles = i$3 `
+    .backdrop { position: fixed; inset: 0; background: rgba(0, 0, 0, 0.6); z-index: 999; display: flex;
+                align-items: center; justify-content: center; padding: 12px; box-sizing: border-box; }
+    .panel { background: #0d1226; color: #e8ecff; border-radius: 16px; width: min(920px, 100%); max-height: 100%;
+             overflow: auto; padding: 16px; box-shadow: 0 10px 40px rgba(0, 0, 0, 0.5); font: 14px system-ui, sans-serif; }
+    header { display: flex; align-items: center; gap: 8px; margin-bottom: 12px; flex-wrap: wrap; }
+    header h2 { margin: 0 auto 0 0; font-size: 18px; font-weight: 600; }
+    .chip { padding: 3px 10px; border-radius: 999px; background: rgba(255, 255, 255, 0.08); font-size: 12px; }
+    .chip.on { background: #4f7cff; color: #fff; }
+    button { background: rgba(255, 255, 255, 0.1); color: #fff; border: 0; border-radius: 8px; padding: 7px 14px;
+             cursor: pointer; font: inherit; }
+    button.primary { background: #4f7cff; }
+    button:disabled { opacity: 0.4; cursor: default; }
+    .x { background: transparent; font-size: 20px; padding: 0 6px; }
+    footer { display: flex; justify-content: space-between; gap: 8px; margin-top: 14px; align-items: center; }
+    .msg { color: #ffb4a8; font-size: 13px; }
+    .hint { color: #aab3d9; font-size: 13px; margin: 6px 0; }
+    .frame { position: relative; width: 100%; max-height: 60vh; border-radius: 10px; overflow: hidden;
+             background: linear-gradient(#0b1430, #1b2550 70%, #121318 70%); cursor: crosshair; }
+    .frame img { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: fill; }
+    .frame canvas, .frame svg { position: absolute; inset: 0; width: 100%; height: 100%; }
+    .drop { border: 2px dashed rgba(255, 255, 255, 0.25); border-radius: 12px; padding: 28px; text-align: center; }
+    .row { display: flex; gap: 16px; flex-wrap: wrap; align-items: flex-start; }
+    .grow { flex: 1; min-width: 260px; }
+    .cands { display: flex; flex-wrap: wrap; gap: 6px; margin: 8px 0; }
+    .cands button { padding: 4px 10px; font-size: 12px; border-radius: 999px; }
+    .cands button.sel { background: #ffd166; color: #222; }
+    .methods { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
+    .methods button { text-align: left; padding: 16px; border-radius: 12px; }
+    .methods b { display: block; font-size: 15px; margin-bottom: 4px; }
+    .dial { width: 170px; height: 170px; touch-action: none; cursor: pointer; }
+    label { display: block; margin: 8px 0 4px; font-size: 13px; color: #c8d0f5; }
+    input[type="range"] { width: 100%; accent-color: #8fb3ff; }
+    input[type="number"], input[type="datetime-local"] { background: #1a2140; color: #fff; border: 1px solid #333c66;
+             border-radius: 6px; padding: 5px 8px; font: inherit; }
+    .polys { display: flex; gap: 6px; flex-wrap: wrap; margin-top: 8px; }
+  `;
+if (!customElements.get("mapa-nieba-wizard"))
+    customElements.define("mapa-nieba-wizard", MapaNiebaWizard);
 
 const RANGE_MIN = HALF_RANGE * STEP_MIN; // 720
 const PLAY_MS = 20000; // whole range in ~20 s
@@ -21802,7 +22571,28 @@ class MapaNiebaCard extends i {
           ${isAdmin ? b `<button class="wizard-btn" title="Kreator" @click=${() => (this._wizardOpen = true)}>⚙</button>` : A}
         </div>
       </div>
+      ${this._wizardOpen
+            ? b `<mapa-nieba-wizard .hass=${this.hass} .data=${this._data} .photoUrl=${this._config.photo ? "" : this._photoSrc}
+                 .rises=${this._sky?.rises} @close=${() => (this._wizardOpen = false)} @saved=${() => this._afterSave()}></mapa-nieba-wizard>`
+            : A}
     </ha-card>`;
+    }
+    async _afterSave() {
+        this._wizardOpen = false;
+        // saving options reloads the integration; retry until it answers again
+        for (let i = 0; i < 6; i++) {
+            await new Promise((r) => setTimeout(r, 1000));
+            try {
+                this._data = await this.hass.callWS({ type: "mapa_nieba/config" });
+                this._view = fromWindow(this._data.geometry);
+                await this._resolvePhoto();
+                await this._loadSky();
+                return;
+            }
+            catch {
+                /* integration still reloading */
+            }
+        }
     }
     _tooltip() {
         const b$1 = this._scene?.bodies.find((x) => x.id === this._hover);

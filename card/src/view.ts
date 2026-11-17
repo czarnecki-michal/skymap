@@ -5,6 +5,7 @@ export interface View {
   az: number;
   alt: number;
   hfov: number;
+  roll?: number; // only used by the wizard preview (window geometry with roll)
 }
 
 const clamp = (x: number, lo: number, hi: number) => Math.min(hi, Math.max(lo, x));
@@ -14,7 +15,7 @@ export const MIN_FOV = 20;
 export const MAX_FOV = 120;
 
 export function viewGeometry(v: View, aspect: number): WindowGeometry {
-  return { az_center: v.az, alt_center: v.alt, hfov: v.hfov, aspect, roll: 0 };
+  return { az_center: v.az, alt_center: v.alt, hfov: v.hfov, aspect, roll: v.roll ?? 0 };
 }
 
 export function fromWindow(g: WindowGeometry): View {

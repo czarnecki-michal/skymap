@@ -51,7 +51,7 @@ type Catalogue = {
 };
 const data = stars as unknown as Catalogue;
 
-const SOLAR: Record<string, { name: string; kind: ObjectInfo["kind"] }> = {
+export const SOLAR: Record<string, { name: string; kind: ObjectInfo["kind"] }> = {
   sun: { name: "Słońce", kind: "sun" },
   moon: { name: "Księżyc", kind: "moon" },
   mercury: { name: "Merkury", kind: "planet" },
@@ -62,7 +62,7 @@ const SOLAR: Record<string, { name: string; kind: ObjectInfo["kind"] }> = {
 };
 
 // J2000 coordinates of the named catalogue stars (mirror of objects.py).
-const NAMED: Record<string, [number, number]> = {
+export const NAMED: Record<string, [number, number]> = {
   sirius: [101.287, -16.716], arcturus: [213.915, 19.182], vega: [279.234, 38.784],
   capella: [79.172, 45.998], rigel: [78.634, -8.202], procyon: [114.825, 5.225],
   betelgeuse: [88.793, 7.407], altair: [297.696, 8.868], aldebaran: [68.98, 16.509],

@@ -82,4 +82,12 @@ describe("card v2", () => {
     expect(el.shouldUpdate(new Map([["hass", 1]]))).toBe(false);
     expect(el.shouldUpdate(new Map([["_offset", 1]]))).toBe(true);
   });
+  it("the wizard button opens the wizard", async () => {
+    const { el } = make(true);
+    const root = await mounted(el);
+    (root.querySelector(".wizard-btn") as HTMLButtonElement).click();
+    await el.updateComplete;
+    expect(root.querySelector("mapa-nieba-wizard")).not.toBeNull();
+    el.remove();
+  });
 });

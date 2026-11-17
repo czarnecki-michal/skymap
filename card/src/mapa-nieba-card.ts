@@ -5,6 +5,7 @@ import { drawOverlay, drawSky, hitTest } from "./renderer";
 import { buildScene, type CardData, type Scene } from "./scene";
 import { HALF_RANGE, STEP_MIN, bodiesAt, rangeTimes, sliderIndex, type SkyReply } from "./sky-data";
 import { fromWindow, panView, skyColors, zoomView, type View } from "./view";
+import "./wizard-ui";
 
 export interface CardConfig {
   type?: string;
@@ -315,7 +316,28 @@ export class MapaNiebaCard extends LitElement {
           ${isAdmin ? html`<button class="wizard-btn" title="Kreator" @click=${() => (this._wizardOpen = true)}>⚙</button>` : nothing}
         </div>
       </div>
+      ${this._wizardOpen
+        ? html`<mapa-nieba-wizard .hass=${this.hass} .data=${this._data} .photoUrl=${this._config.photo ? "" : this._photoSrc}
+                 .rises=${this._sky?.rises} @close=${() => (this._wizardOpen = false)} @saved=${() => this._afterSave()}></mapa-nieba-wizard>`
+        : nothing}
     </ha-card>`;
+  }
+
+  async _afterSave() {
+    this._wizardOpen = false;
+    // saving options reloads the integration; retry until it answers again
+    for (let i = 0; i < 6; i++) {
+      await new Promise((r) => setTimeout(r, 1000));
+      try {
+        this._data = await this.hass.callWS({ type: "mapa_nieba/config" });
+        this._view = fromWindow(this._data!.geometry);
+        await this._resolvePhoto();
+        await this._loadSky();
+        return;
+      } catch {
+        /* integration still reloading */
+      }
+    }
   }
 
   _tooltip() {

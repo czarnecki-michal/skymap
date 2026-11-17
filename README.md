@@ -14,7 +14,7 @@ Plik JS karty jest serwowany przez integrację i rejestruje się automatycznie.
 
 ## Karta
 
-Wrzuć zdjęcie balkonu (robione „jak przez okno") do `/config/www/balkon.jpg`, potem dodaj kartę:
+Zdjęcie balkonu jest opcjonalne. Jeśli chcesz mieć widok „jak przez okno", wrzuć je do `/config/www/balkon.jpg`, potem dodaj kartę (bez `photo` dostaniesz samą mapę nieba na ciemnym tle):
 
 ```yaml
 type: custom:mapa-nieba-card

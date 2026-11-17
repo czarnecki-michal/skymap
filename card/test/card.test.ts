@@ -20,8 +20,15 @@ function make(isAdmin: boolean) {
 }
 
 describe("card", () => {
-  it("requires photo", () => {
-    expect(() => new MapaNiebaCard().setConfig({})).toThrow(/photo/);
+  it("works without a photo", async () => {
+    const { el } = make(true);
+    el.setConfig({});
+    await el._load();
+    document.body.appendChild(el);
+    await el.updateComplete;
+    expect(el.shadowRoot!.querySelector("image")).toBeNull();
+    expect(el.shadowRoot!.querySelector("svg")).not.toBeNull();
+    el.remove();
   });
   it("defaults photo_opacity to 0.5 and registers in customCards", () => {
     const el = new MapaNiebaCard();

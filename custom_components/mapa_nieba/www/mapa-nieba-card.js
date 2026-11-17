@@ -20090,9 +20090,8 @@ class MapaNiebaCard extends i {
         this._loading = false;
     }
     setConfig(config) {
-        if (!config || !config.photo) {
-            throw new Error("mapa-nieba-card: brakuje wymaganej opcji 'photo'");
-        }
+        if (!config)
+            throw new Error("mapa-nieba-card: brak konfiguracji");
         this._config = { photo_opacity: 0.5, ...config };
     }
     getCardSize() {
@@ -20233,9 +20232,11 @@ class MapaNiebaCard extends i {
       <div class="wrap">
         <svg viewBox="0 0 ${W} ${H}" @pointerdown=${this._down} @pointermove=${this._move}
              @pointerup=${() => (this._drag = undefined)} @wheel=${this._wheel}>
-          <image href=${this._config.photo} width=${W} height=${H} preserveAspectRatio="none"
+          ${this._config.photo
+            ? w `<image href=${this._config.photo} width=${W} height=${H} preserveAspectRatio="none"
                  opacity=${this._config.photo_opacity ?? 0.5}
-                 @load=${(e) => this._photoLoaded(e)}></image>
+                 @load=${(e) => this._photoLoaded(e)}></image>`
+            : A}
           ${scene.lines.map((l) => w `<line x1=${l.x1} y1=${l.y1} x2=${l.x2} y2=${l.y2} stroke="#6f8fff" stroke-width="0.6" opacity="0.5"/>`)}
           ${scene.stars.map((s) => w `<circle cx=${s.x} cy=${s.y} r=${s.r} fill="#fff" opacity="0.9"/>`)}
           <path d=${scene.horizon} stroke="#3c9" fill="none" stroke-width="1" opacity="0.6"/>

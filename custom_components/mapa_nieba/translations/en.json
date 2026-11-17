@@ -1,0 +1,11 @@
+{
+  "config": {
+    "step": {
+      "user": {
+        "title": "Sky map",
+        "description": "Add the integration. Window geometry and obstructions are set in the card (calibration mode)."
+      }
+    },
+    "abort": {"single_instance_allowed": "The integration is already configured."}
+  }
+}

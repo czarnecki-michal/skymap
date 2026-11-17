@@ -1,0 +1,11 @@
+{
+  "config": {
+    "step": {
+      "user": {
+        "title": "Mapa nieba",
+        "description": "Dodaj integrację. Geometrię okna i przeszkody ustawisz w karcie (tryb kalibracji)."
+      }
+    },
+    "abort": {"single_instance_allowed": "Integracja jest już skonfigurowana."}
+  }
+}

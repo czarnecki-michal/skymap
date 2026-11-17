@@ -6,6 +6,36 @@
         "description": "Dodaj integrację. Geometrię okna i przeszkody ustawisz w karcie (tryb kalibracji)."
       }
     },
-    "abort": {"single_instance_allowed": "Integracja jest już skonfigurowana."}
+    "abort": {
+      "single_instance_allowed": "Integracja jest już skonfigurowana."
+    }
+  },
+  "options": {
+    "step": {
+      "init": {
+        "title": "Ustawienia mapy nieba",
+        "data": {
+          "objects": "Obiekty",
+          "twilight": "Próg zmierzchu (wysokość Słońca, °)",
+          "az_center": "Azymut środka kadru (°)",
+          "alt_center": "Wysokość środka kadru (°)",
+          "hfov": "Poziomy kąt widzenia (°)",
+          "aspect": "Proporcje zdjęcia (szer./wys.)",
+          "roll": "Obrót (°)"
+        }
+      }
+    }
+  },
+  "entity": {
+    "sensor": {
+      "object": {
+        "state": {
+          "visible": "Widoczny",
+          "obstructed": "Zasłonięty",
+          "out_of_frame": "Poza kadrem",
+          "hidden": "Niewidoczny"
+        }
+      }
+    }
   }
 }

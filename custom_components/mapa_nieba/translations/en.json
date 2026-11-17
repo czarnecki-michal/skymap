@@ -6,6 +6,36 @@
         "description": "Add the integration. Window geometry and obstructions are set in the card (calibration mode)."
       }
     },
-    "abort": {"single_instance_allowed": "The integration is already configured."}
+    "abort": {
+      "single_instance_allowed": "The integration is already configured."
+    }
+  },
+  "options": {
+    "step": {
+      "init": {
+        "title": "Sky map settings",
+        "data": {
+          "objects": "Objects",
+          "twilight": "Twilight threshold (Sun altitude, °)",
+          "az_center": "Frame centre azimuth (°)",
+          "alt_center": "Frame centre altitude (°)",
+          "hfov": "Horizontal field of view (°)",
+          "aspect": "Photo aspect (w/h)",
+          "roll": "Roll (°)"
+        }
+      }
+    }
+  },
+  "entity": {
+    "sensor": {
+      "object": {
+        "state": {
+          "visible": "Visible",
+          "obstructed": "Obstructed",
+          "out_of_frame": "Out of frame",
+          "hidden": "Hidden"
+        }
+      }
+    }
   }
 }

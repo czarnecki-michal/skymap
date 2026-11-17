@@ -48,7 +48,12 @@ def load_ephemeris(path: Path = EPHEMERIS_PATH) -> SpiceKernel:
 
 @lru_cache(maxsize=1)
 def _eph() -> SpiceKernel:
-    return load_ephemeris()
+    return load_ephemeris(EPHEMERIS_PATH)
+
+
+def ensure_ephemeris() -> SpiceKernel:
+    """Load (and cache) the ephemeris; raises FileNotFoundError if missing."""
+    return _eph()
 
 
 def _target(eph: SpiceKernel, obj: SkyObject):

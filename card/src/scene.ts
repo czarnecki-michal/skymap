@@ -74,6 +74,19 @@ export const NAMED: Record<string, [number, number]> = {
   hamal: [31.793, 23.463],
 };
 
+const STAR_NAMES: Record<string, string> = {
+  sirius: "Syriusz", arcturus: "Arktur", vega: "Wega", capella: "Kapella", rigel: "Rigel",
+  procyon: "Procjon", betelgeuse: "Betelgeza", altair: "Altair", aldebaran: "Aldebaran", spica: "Spika",
+  antares: "Antares", pollux: "Polluks", fomalhaut: "Fomalhaut", deneb: "Deneb", regulus: "Regulus",
+  castor: "Kastor", bellatrix: "Bellatrix", elnath: "Elnath", alnilam: "Alnilam", alioth: "Alioth",
+  dubhe: "Dubhe", mirfak: "Mirfak", polaris: "Polaris", alphard: "Alphard", hamal: "Hamal",
+};
+
+/** Polish name of a named catalogue star (mirror of objects.py). */
+export function starName(id: string): string {
+  return STAR_NAMES[id] ?? id;
+}
+
 export function starRadius(mag: number): number {
   return Math.max(0.6, 3.2 - 0.5 * mag);
 }

@@ -2,7 +2,7 @@ import { LitElement, css, html, nothing, svg } from "lit";
 import { readExifDate } from "./exif";
 import { project } from "./projection";
 import { drawOverlay, drawSky } from "./renderer";
-import { NAMED, SOLAR, buildScene, type BodyPoints, type CardData } from "./scene";
+import { NAMED, SOLAR, buildScene, starName, type BodyPoints, type CardData } from "./scene";
 import { localSiderealTime, precess, raDecToAltAz } from "./sky-math";
 import { bodiesAt, type SkyReply } from "./sky-data";
 import { skyColors, type View } from "./view";
@@ -121,11 +121,10 @@ export class MapaNiebaWizard extends LitElement {
     for (const [id, aa] of Object.entries(this._at.bodies)) {
       if (aa && aa[0] > 0 && SOLAR[id]) out.push({ id, name: SOLAR[id].name, alt: aa[0], az: aa[1] });
     }
-    const names = new Map(this.data.objects.map((o) => [o.id, o.name]));
     for (const [id, [ra, dec]] of Object.entries(NAMED)) {
       const [r2, d2] = precess(ra, dec, this._at.time);
       const { alt, az } = raDecToAltAz(r2, d2, lat, lst);
-      if (alt > 0) out.push({ id, name: names.get(id) ?? id[0].toUpperCase() + id.slice(1), alt, az });
+      if (alt > 0) out.push({ id, name: starName(id), alt, az });
     }
     return out.sort((a, b) => b.alt - a.alt);
   }

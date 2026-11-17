@@ -21454,6 +21454,17 @@ const NAMED = {
     mirfak: [51.081, 49.861], polaris: [37.955, 89.264], alphard: [141.897, -8.659],
     hamal: [31.793, 23.463],
 };
+const STAR_NAMES = {
+    sirius: "Syriusz", arcturus: "Arktur", vega: "Wega", capella: "Kapella", rigel: "Rigel",
+    procyon: "Procjon", betelgeuse: "Betelgeza", altair: "Altair", aldebaran: "Aldebaran", spica: "Spika",
+    antares: "Antares", pollux: "Polluks", fomalhaut: "Fomalhaut", deneb: "Deneb", regulus: "Regulus",
+    castor: "Kastor", bellatrix: "Bellatrix", elnath: "Elnath", alnilam: "Alnilam", alioth: "Alioth",
+    dubhe: "Dubhe", mirfak: "Mirfak", polaris: "Polaris", alphard: "Alphard", hamal: "Hamal",
+};
+/** Polish name of a named catalogue star (mirror of objects.py). */
+function starName(id) {
+    return STAR_NAMES[id] ?? id;
+}
 function starRadius(mag) {
     return Math.max(0.6, 3.2 - 0.5 * mag);
 }
@@ -21929,12 +21940,11 @@ class MapaNiebaWizard extends i {
             if (aa && aa[0] > 0 && SOLAR[id])
                 out.push({ id, name: SOLAR[id].name, alt: aa[0], az: aa[1] });
         }
-        const names = new Map(this.data.objects.map((o) => [o.id, o.name]));
         for (const [id, [ra, dec]] of Object.entries(NAMED)) {
             const [r2, d2] = precess(ra, dec, this._at.time);
             const { alt, az } = raDecToAltAz(r2, d2, lat, lst);
             if (alt > 0)
-                out.push({ id, name: names.get(id) ?? id[0].toUpperCase() + id.slice(1), alt, az });
+                out.push({ id, name: starName(id), alt, az });
         }
         return out.sort((a, b) => b.alt - a.alt);
     }

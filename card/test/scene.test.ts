@@ -41,3 +41,12 @@ describe("scene", () => {
     expect(s2.obstructions[0].length).toBe(4);
   });
 });
+
+describe("star names", () => {
+  it("are Polish for every named star", async () => {
+    const { NAMED, starName } = await import("../src/scene");
+    expect(starName("capella")).toBe("Kapella");
+    expect(starName("betelgeuse")).toBe("Betelgeza");
+    for (const id of Object.keys(NAMED)) expect(starName(id)).not.toBe(id);
+  });
+});

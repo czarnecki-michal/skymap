@@ -122,6 +122,14 @@ def compute_track(
     return out
 
 
+def moon_phases(times: Sequence[datetime]) -> list[tuple[float, float]]:
+    """(illumination 0..1, phase 0..1 of the cycle) for each time."""
+    deg = almanac.moon_phase(_eph(), _times(times)).degrees
+    return [
+        ((1.0 - math.cos(math.radians(d))) / 2.0, (float(d) % 360.0) / 360.0) for d in deg
+    ]
+
+
 def sun_altitudes(observer: Observer, times: Sequence[datetime]) -> list[float]:
     eph = _eph()
     site = eph["earth"] + _topos(observer)

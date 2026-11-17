@@ -11,6 +11,13 @@ if TYPE_CHECKING:  # keep pure modules importable without Home Assistant
 _LOGGER = logging.getLogger(__name__)
 
 
+async def async_setup(hass: "HomeAssistant", config: dict) -> bool:
+    from . import websocket_api
+
+    websocket_api.async_register(hass)
+    return True
+
+
 async def async_setup_entry(hass: "HomeAssistant", entry: "ConfigEntry") -> bool:
     from homeassistant.exceptions import ConfigEntryError
 

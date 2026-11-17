@@ -1,6 +1,8 @@
 import stars from "./data/stars.json";
+import { skyToPolygon } from "./obstructions";
 import { project, type WindowGeometry } from "./projection";
 import { localSiderealTime, precess, raDecToAltAz } from "./sky-math";
+import { skyVisibility, viewGeometry, type View } from "./view";
 
 export interface ObjectInfo {
   id: string;
@@ -14,76 +16,53 @@ export interface CardData {
   twilight: number;
   observer: { lat: number; lon: number; elevation: number };
   objects: ObjectInfo[];
+  photo?: { url: string; version: number } | null;
+  photo_opacity?: number;
 }
 /** Positions of solar-system bodies at one time index of a `mapa_nieba/sky` reply. */
 export interface BodyPoints {
   [id: string]: [number, number]; // alt, az
 }
+export interface SceneBody {
+  id: string;
+  name: string;
+  kind: string;
+  entity_id: string | null;
+  x: number;
+  y: number;
+  alt: number;
+  az: number;
+  a: number;
+}
 export interface Scene {
-  stars: { x: number; y: number; r: number }[];
-  lines: { x1: number; y1: number; x2: number; y2: number }[];
-  bodies: { id: string; name: string; kind: string; x: number; y: number; alt: number; az: number; entity_id: string | null }[];
-  horizon: string;
+  stars: { x: number; y: number; r: number; a: number }[];
+  lines: { x1: number; y1: number; x2: number; y2: number; a: number }[];
+  labels: { x: number; y: number; text: string; a: number }[];
+  bodies: SceneBody[];
+  ground: [number, number][];
+  horizon: [number, number][];
+  obstructions: [number, number][][];
 }
 
-const data = stars as { stars: [number, number, number, number][]; lines: [number, number][] };
+type Catalogue = {
+  stars: [number, number, number, number][];
+  lines: [number, number][];
+  constellations: { id: string; name: string; hips: number[] }[];
+};
+const data = stars as unknown as Catalogue;
 
-export function starRadius(mag: number): number {
-  return Math.max(0.6, 3.2 - 0.5 * mag);
-}
-
-export function buildScene(cfg: CardData, bodies: BodyPoints, date: Date, w: number, h: number, sunAlt?: number): Scene {
-  const { lat, lon } = cfg.observer;
-  const lst = localSiderealTime(date, lon);
-  const px = (p: [number, number] | null): [number, number] | null => (p ? [p[0] * w, p[1] * h] : null);
-  const place = (ra: number, dec: number) => {
-    const [r2, d2] = precess(ra, dec, date);
-    const { alt, az } = raDecToAltAz(r2, d2, lat, lst);
-    return { alt, az, p: px(project(cfg.geometry, az, alt)) };
-  };
-  const cache = new Map<number, { alt: number; p: [number, number] | null }>();
-  const sc: Scene = { stars: [], lines: [], bodies: [], horizon: "" };
-  const daylight = sunAlt !== undefined && sunAlt > cfg.twilight;
-  for (const s of daylight ? [] : data.stars) {
-    const q = place(s[0], s[1]);
-    cache.set(s[3], q);
-    if (q.alt > 0 && q.p) sc.stars.push({ x: q.p[0], y: q.p[1], r: starRadius(s[2]) });
-  }
-  for (const [a, b] of daylight ? [] : data.lines) {
-    const qa = cache.get(a);
-    const qb = cache.get(b);
-    if (qa && qb && qa.alt > 0 && qb.alt > 0 && qa.p && qb.p) {
-      sc.lines.push({ x1: qa.p[0], y1: qa.p[1], x2: qb.p[0], y2: qb.p[1] });
-    }
-  }
-  for (const o of cfg.objects) {
-    if (daylight && (o.kind === "planet" || o.kind === "star")) continue;
-    const alt_az = bodies[o.id];
-    if (o.kind === "star") {
-      const st = starCatalogEntry(o.id);
-      if (!st) continue;
-      const q = place(st[0], st[1]);
-      if (q.alt > 0 && q.p) sc.bodies.push({ ...o, x: q.p[0], y: q.p[1], alt: q.alt, az: q.az });
-    } else if (alt_az && alt_az[0] > 0) {
-      const p = px(project(cfg.geometry, alt_az[1], alt_az[0]));
-      if (p) sc.bodies.push({ ...o, x: p[0], y: p[1], alt: alt_az[0], az: alt_az[1] });
-    }
-  }
-  let path = "";
-  let pen = false;
-  for (let az = 0; az <= 360; az += 2) {
-    const p = px(project(cfg.geometry, az, 0));
-    if (p) {
-      path += `${pen ? "L" : "M"}${p[0].toFixed(1)},${p[1].toFixed(1)}`;
-      pen = true;
-    } else pen = false;
-  }
-  sc.horizon = path;
-  return sc;
-}
+export const SOLAR: Record<string, { name: string; kind: ObjectInfo["kind"] }> = {
+  sun: { name: "Słońce", kind: "sun" },
+  moon: { name: "Księżyc", kind: "moon" },
+  mercury: { name: "Merkury", kind: "planet" },
+  venus: { name: "Wenus", kind: "planet" },
+  mars: { name: "Mars", kind: "planet" },
+  jupiter: { name: "Jowisz", kind: "planet" },
+  saturn: { name: "Saturn", kind: "planet" },
+};
 
 // J2000 coordinates of the named catalogue stars (mirror of objects.py).
-const NAMED: Record<string, [number, number]> = {
+export const NAMED: Record<string, [number, number]> = {
   sirius: [101.287, -16.716], arcturus: [213.915, 19.182], vega: [279.234, 38.784],
   capella: [79.172, 45.998], rigel: [78.634, -8.202], procyon: [114.825, 5.225],
   betelgeuse: [88.793, 7.407], altair: [297.696, 8.868], aldebaran: [68.98, 16.509],
@@ -94,6 +73,105 @@ const NAMED: Record<string, [number, number]> = {
   mirfak: [51.081, 49.861], polaris: [37.955, 89.264], alphard: [141.897, -8.659],
   hamal: [31.793, 23.463],
 };
-function starCatalogEntry(id: string): [number, number] | undefined {
-  return NAMED[id];
+
+const STAR_NAMES: Record<string, string> = {
+  sirius: "Syriusz", arcturus: "Arktur", vega: "Wega", capella: "Kapella", rigel: "Rigel",
+  procyon: "Procjon", betelgeuse: "Betelgeza", altair: "Altair", aldebaran: "Aldebaran", spica: "Spika",
+  antares: "Antares", pollux: "Polluks", fomalhaut: "Fomalhaut", deneb: "Deneb", regulus: "Regulus",
+  castor: "Kastor", bellatrix: "Bellatrix", elnath: "Elnath", alnilam: "Alnilam", alioth: "Alioth",
+  dubhe: "Dubhe", mirfak: "Mirfak", polaris: "Polaris", alphard: "Alphard", hamal: "Hamal",
+};
+
+/** Polish name of a named catalogue star (mirror of objects.py). */
+export function starName(id: string): string {
+  return STAR_NAMES[id] ?? id;
+}
+
+export function starRadius(mag: number): number {
+  return Math.max(0.6, 3.2 - 0.5 * mag);
+}
+
+const inside = (p: [number, number] | null, m = 0.05) =>
+  !!p && p[0] >= -m && p[0] <= 1 + m && p[1] >= -m && p[1] <= 1 + m;
+
+export function buildScene(
+  cfg: CardData,
+  bodies: BodyPoints,
+  date: Date,
+  view: View,
+  w: number,
+  h: number,
+  sunAlt?: number,
+): Scene {
+  const vg = viewGeometry(view, w / h);
+  const vis = sunAlt === undefined ? 1 : skyVisibility(sunAlt);
+  const { lat, lon } = cfg.observer;
+  const lst = localSiderealTime(date, lon);
+  const px = (p: [number, number]): [number, number] => [p[0] * w, p[1] * h];
+  const sc: Scene = { stars: [], lines: [], labels: [], bodies: [], ground: [], horizon: [], obstructions: [] };
+
+  const placed = new Map<number, [number, number] | null>();
+  for (const s of data.stars) {
+    const [ra, dec] = precess(s[0], s[1], date);
+    const { alt, az } = raDecToAltAz(ra, dec, lat, lst);
+    const p = alt > 0 ? project(vg, az, alt) : null;
+    placed.set(s[3], p);
+    if (p && inside(p)) sc.stars.push({ x: p[0] * w, y: p[1] * h, r: starRadius(s[2]), a: vis });
+  }
+  for (const [a, b] of data.lines) {
+    const qa = placed.get(a);
+    const qb = placed.get(b);
+    if (qa && qb && (inside(qa, 0.3) || inside(qb, 0.3))) {
+      sc.lines.push({ x1: qa[0] * w, y1: qa[1] * h, x2: qb[0] * w, y2: qb[1] * h, a: vis });
+    }
+  }
+  for (const c of data.constellations) {
+    const pts = c.hips
+      .map((hp) => placed.get(hp) ?? null)
+      .filter((p): p is [number, number] => inside(p, 0));
+    if (pts.length < 2) continue;
+    const x = pts.reduce((s, p) => s + p[0], 0) / pts.length;
+    const y = pts.reduce((s, p) => s + p[1], 0) / pts.length;
+    sc.labels.push({ x: x * w, y: y * h, text: c.name, a: vis });
+  }
+
+  const infos = new Map<string, ObjectInfo>();
+  for (const [id, s] of Object.entries(SOLAR)) if (bodies[id]) infos.set(id, { id, ...s, entity_id: null });
+  for (const o of cfg.objects) infos.set(o.id, { ...infos.get(o.id), ...o });
+  for (const o of infos.values()) {
+    let alt: number;
+    let az: number;
+    if (o.kind === "star") {
+      const st = NAMED[o.id];
+      if (!st) continue;
+      const [ra, dec] = precess(st[0], st[1], date);
+      ({ alt, az } = raDecToAltAz(ra, dec, lat, lst));
+    } else {
+      const aa = bodies[o.id];
+      if (!aa) continue;
+      [alt, az] = aa;
+    }
+    if (alt <= 0) continue;
+    const p = project(vg, az, alt);
+    if (!p || !inside(p, 0.1)) continue;
+    const a = o.kind === "sun" || o.kind === "moon" ? 1 : vis;
+    sc.bodies.push({ ...o, x: p[0] * w, y: p[1] * h, alt, az, a });
+  }
+
+  for (let d = -90; d <= 90; d += 2) {
+    const p = project(vg, view.az + d, 0);
+    if (p && p[0] > -0.5 && p[0] < 1.5) sc.horizon.push(px(p));
+  }
+  if (sc.horizon.length >= 2) {
+    const first = sc.horizon[0];
+    const last = sc.horizon[sc.horizon.length - 1];
+    sc.ground = [...sc.horizon, [last[0], h * 3], [first[0], h * 3]];
+  } else if (view.alt < 0) {
+    sc.ground = [[0, 0], [w, 0], [w, h], [0, h]];
+  }
+
+  sc.obstructions = cfg.obstructions
+    .map((poly) => skyToPolygon(vg, poly).map(px))
+    .filter((poly) => poly.length >= 3);
+  return sc;
 }

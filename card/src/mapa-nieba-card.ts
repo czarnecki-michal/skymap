@@ -1,19 +1,25 @@
-import { LitElement, css, html, nothing, svg } from "lit";
-import { STATE_LABELS, moonPath } from "./body-render";
-import { applyDrag, applyRoll, applyZoom } from "./calibration";
-import { polygonToSky, skyToPolygon, type Poly } from "./obstructions";
-import type { WindowGeometry } from "./projection";
-import { buildScene, type CardData } from "./scene";
-import { bodiesAt, rangeTimes, sliderIndex, type SkyReply } from "./sky-data";
+import { LitElement, css, html, nothing } from "lit";
+import { STATE_LABELS } from "./body-render";
+import { photoTransform } from "./homography";
+import { drawOverlay, drawSky, hitTest } from "./renderer";
+import { buildScene, type CardData, type Scene } from "./scene";
+import { HALF_RANGE, STEP_MIN, bodiesAt, rangeTimes, sliderIndex, type SkyReply } from "./sky-data";
+import { fromWindow, panView, skyColors, zoomView, type View } from "./view";
+import "./wizard-ui";
 
 export interface CardConfig {
   type?: string;
   photo?: string;
   photo_opacity?: number;
-  entry_id?: string;
 }
 
-const W = 1000;
+const RANGE_MIN = HALF_RANGE * STEP_MIN; // 720
+const PLAY_MS = 20000; // whole range in ~20 s
+const DIRS = ["N", "NNE", "NE", "ENE", "E", "ESE", "SE", "SSE", "S", "SSW", "SW", "WSW", "W", "WNW", "NW", "NNW"];
+
+export function compassLabel(az: number): string {
+  return `${DIRS[Math.round(az / 22.5) % 16]} · ${Math.round(az)}°`;
+}
 
 export class MapaNiebaCard extends LitElement {
   static properties = {
@@ -22,48 +28,69 @@ export class MapaNiebaCard extends LitElement {
     _data: { state: true },
     _sky: { state: true },
     _offset: { state: true },
-    _geo: { state: true },
-    _polys: { state: true },
-    _draw: { state: true },
-    _calibrating: { state: true },
+    _view: { state: true },
+    _playing: { state: true },
     _hover: { state: true },
     _error: { state: true },
-    _saveError: { state: true },
-    _imgAspect: { state: true },
+    _photoSrc: { state: true },
+    _wizardOpen: { state: true },
+    _size: { state: true },
   };
   hass: any;
-  _config?: CardConfig;
+  _config: CardConfig = {};
   _data?: CardData;
   _sky?: SkyReply;
   _skyBase = new Date();
-  _offset = 0; // minutes from now
-  _geo?: WindowGeometry; // draft geometry while calibrating
-  _polys: Poly[] = []; // draft obstruction polygons in image coordinates
-  _draw: Poly | null = null;
-  _calibrating = false;
-  _hover: any = null;
+  _offset = 0;
+  _view: View = { az: 135, alt: 15, hfov: 67 };
+  _playing = false;
+  _hover: string | null = null;
   _error = "";
-  _saveError = "";
-  _imgAspect = 0;
+  _photoSrc = "";
+  _wizardOpen = false;
+  _size = { w: 0, h: 0 };
   _loading = false;
   _timer?: number;
-  _drag?: { x: number; y: number };
+  _raf = 0;
+  _lastTick = 0;
+  _scene?: Scene;
+  _ro?: ResizeObserver;
+  _pointers = new Map<number, { x: number; y: number }>();
+  _moved = false;
+  _pinch = 0;
+
+  static getStubConfig() {
+    return {};
+  }
 
   static styles = css`
-    ha-card { padding: 8px; }
-    svg { width: 100%; display: block; background: #060a18; touch-action: none; }
-    .bar { display: flex; gap: 8px; align-items: center; margin-top: 8px; flex-wrap: wrap; }
-    .bar input[type="range"] { flex: 1; min-width: 120px; }
-    .tip { position: absolute; background: var(--card-background-color, #222); color: var(--primary-text-color, #fff);
-           padding: 4px 8px; border-radius: 6px; font-size: 12px; pointer-events: none; box-shadow: 0 1px 4px #0008; }
-    .wrap { position: relative; }
-    .err { color: var(--error-color, red); padding: 8px; }
-    button { cursor: pointer; }
+    ha-card { overflow: hidden; padding: 0; }
+    .stage { position: relative; width: 100%; overflow: hidden; background: #050816; touch-action: pan-y;
+             user-select: none; max-height: 85vh; }
+    canvas, img.photo { position: absolute; left: 0; top: 0; }
+    img.photo { transform-origin: 0 0; pointer-events: none; }
+    canvas.overlay { cursor: grab; }
+    canvas.overlay:active { cursor: grabbing; }
+    .glass { background: rgba(10, 14, 30, 0.55); backdrop-filter: blur(8px); -webkit-backdrop-filter: blur(8px);
+             color: #fff; border: 1px solid rgba(255, 255, 255, 0.08); }
+    .compass { position: absolute; top: 10px; left: 50%; transform: translateX(-50%); border-radius: 999px;
+               padding: 3px 12px; font-size: 12px; letter-spacing: 1.5px; pointer-events: none; }
+    .fab { position: absolute; top: 10px; right: 10px; width: 36px; height: 36px; border-radius: 50%;
+           font-size: 18px; cursor: pointer; display: flex; align-items: center; justify-content: center; }
+    .bar { position: absolute; left: 10px; right: 10px; bottom: 10px; border-radius: 12px; padding: 6px 10px;
+           display: flex; gap: 8px; align-items: center; font-size: 13px; }
+    .bar button { background: rgba(255, 255, 255, 0.12); border: 0; color: #fff; border-radius: 999px;
+                  min-width: 32px; height: 28px; cursor: pointer; font-size: 14px; }
+    .bar input { flex: 1; accent-color: #8fb3ff; min-width: 60px; }
+    .time { font-variant-numeric: tabular-nums; min-width: 92px; text-align: center; opacity: .9; }
+    .tip { position: absolute; transform: translate(14px, -50%); border-radius: 8px; padding: 6px 10px;
+           font-size: 12px; pointer-events: none; white-space: nowrap; }
+    .err { color: var(--error-color, #f66); padding: 12px; }
   `;
 
-  setConfig(config: Partial<CardConfig>) {
+  setConfig(config: CardConfig) {
     if (!config) throw new Error("mapa-nieba-card: brak konfiguracji");
-    this._config = { photo_opacity: 0.5, ...config } as CardConfig;
+    this._config = { ...config };
   }
 
   getCardSize() {
@@ -72,28 +99,45 @@ export class MapaNiebaCard extends LitElement {
 
   connectedCallback() {
     super.connectedCallback();
-    this._timer = window.setInterval(() => void this._loadSky().catch(() => undefined), 10 * 60000);
+    this._timer = window.setInterval(() => {
+      void this._loadSky().catch(() => undefined);
+      void this._resolvePhoto().catch(() => undefined);
+    }, 10 * 60000);
+    if (this._data) this.requestUpdate(); // re-attach the resize observer and redraw after a reconnect
   }
 
   disconnectedCallback() {
     super.disconnectedCallback();
     if (this._timer) clearInterval(this._timer);
+    cancelAnimationFrame(this._raf);
+    this._playing = false;
+    this._ro?.disconnect();
+    this._ro = undefined;
   }
 
   shouldUpdate(changed: Map<string, unknown>) {
-    // state changes elsewhere in HA must not rebuild the whole sky once the card is loaded
     if (this._data && changed.size === 1 && changed.has("hass")) return false;
     return true;
   }
 
   updated(changed: Map<string, unknown>) {
-    if (changed.has("hass") && this.hass && !this._data && !this._loading) void this._load();
+    if (changed.has("hass") && this.hass && !this._data && !this._loading && !this._error) void this._load();
+    const stage = this.renderRoot.querySelector(".stage") as HTMLElement | null;
+    if (stage && !this._ro && typeof ResizeObserver !== "undefined") {
+      this._ro = new ResizeObserver(() => {
+        this._size = { w: stage.clientWidth, h: stage.clientHeight };
+      });
+      this._ro.observe(stage);
+    }
+    this._draw();
   }
 
   async _load() {
     this._loading = true;
     try {
       this._data = await this.hass.callWS({ type: "mapa_nieba/config" });
+      this._view = fromWindow(this._data!.geometry);
+      await this._resolvePhoto();
       await this._loadSky();
       this._error = "";
     } catch (e: any) {
@@ -103,172 +147,224 @@ export class MapaNiebaCard extends LitElement {
     }
   }
 
+  async _resolvePhoto() {
+    if (this._config.photo) {
+      this._photoSrc = this._config.photo;
+      return;
+    }
+    const p = this._data?.photo;
+    if (!p) {
+      this._photoSrc = "";
+      return;
+    }
+    const signed = await this.hass.callWS({
+      type: "auth/sign_path", path: `${p.url}?v=${p.version}`, expires: 24 * 3600,
+    });
+    this._photoSrc = signed.path;
+  }
+
   async _loadSky() {
     if (!this.hass || !this._data) return;
     this._skyBase = new Date();
     this._sky = await this.hass.callWS({ type: "mapa_nieba/sky", times: rangeTimes(this._skyBase) });
   }
 
-  get _isAdmin(): boolean {
-    return !!this.hass?.user?.is_admin;
+  // ---- interaction -------------------------------------------------------
+  _pan(dx: number, dy: number, pxPerDeg: number) {
+    this._view = panView(this._view, dx, dy, pxPerDeg);
   }
 
-  get _geometry(): WindowGeometry | undefined {
-    return this._calibrating && this._geo ? this._geo : this._data?.geometry;
+  _recenter() {
+    if (this._data) this._view = fromWindow(this._data.geometry);
   }
 
-  _startCalibration() {
-    if (!this._data) return;
-    this._geo = { ...this._data.geometry };
-    if (this._imgAspect > 0) this._geo.aspect = this._imgAspect;
-    this._saveError = "";
-    this._polys = this._data.obstructions.map((p) => skyToPolygon(this._data!.geometry, p));
-    this._calibrating = true;
-  }
-
-  async _save() {
-    if (!this._geo) return;
-    // vertices only (subdivide = 1): re-saving must never multiply the vertex count
-    const obstructions = this._polys.filter((p) => p.length >= 3).map((p) => polygonToSky(this._geo!, p, 1));
-    try {
-      await this.hass.callWS({ type: "mapa_nieba/save_geometry", geometry: this._geo, obstructions });
-    } catch (e: any) {
-      this._saveError = e?.message || "Zapis nie powiódł się";
-      return;
+  _togglePlay() {
+    this._playing = !this._playing;
+    if (this._playing) {
+      if (this._offset >= RANGE_MIN) this._offset = -RANGE_MIN;
+      this._lastTick = performance.now();
+      const step = (t: number) => {
+        if (!this._playing) return;
+        this._advance(t - this._lastTick);
+        this._lastTick = t;
+        if (this._playing) this._raf = requestAnimationFrame(step);
+      };
+      this._raf = requestAnimationFrame(step);
     }
-    this._saveError = "";
-    this._data = { ...this._data!, geometry: this._geo, obstructions };
-    this._calibrating = false;
-    this._draw = null;
   }
 
-  _svgPoint(e: PointerEvent | MouseEvent): [number, number] {
-    const r = (e.currentTarget as SVGElement).getBoundingClientRect();
-    return [(e.clientX - r.left) / r.width, (e.clientY - r.top) / r.height];
+  _advance(ms: number) {
+    const next = this._offset + (ms / PLAY_MS) * 2 * RANGE_MIN;
+    if (next >= RANGE_MIN) {
+      this._offset = RANGE_MIN;
+      this._playing = false;
+    } else {
+      this._offset = next;
+    }
+  }
+
+  _local(e: PointerEvent | WheelEvent): [number, number] {
+    const r = (e.currentTarget as HTMLElement).getBoundingClientRect();
+    return [e.clientX - r.left, e.clientY - r.top];
   }
 
   _down(e: PointerEvent) {
-    if (!this._calibrating) return;
-    if (this._draw) {
-      this._draw = [...this._draw, this._svgPoint(e)];
-      return;
-    }
-    this._drag = { x: e.clientX, y: e.clientY };
+    (e.currentTarget as HTMLElement).setPointerCapture?.(e.pointerId);
+    this._pointers.set(e.pointerId, { x: e.clientX, y: e.clientY });
+    this._moved = false;
+    this._pinch = 0;
   }
 
   _move(e: PointerEvent) {
-    if (!this._drag || !this._geo) return;
-    const r = (e.currentTarget as SVGElement).getBoundingClientRect();
-    this._geo = applyDrag(this._geo, e.clientX - this._drag.x, e.clientY - this._drag.y, r.width / this._geo.hfov);
-    this._drag = { x: e.clientX, y: e.clientY };
+    const prev = this._pointers.get(e.pointerId);
+    if (!prev) {
+      const [x, y] = this._local(e);
+      const id = this._scene ? hitTest(this._scene, x, y) : null;
+      if (id !== this._hover) this._hover = id;
+      return;
+    }
+    this._pointers.set(e.pointerId, { x: e.clientX, y: e.clientY });
+    if (this._pointers.size === 2) {
+      const [a, b] = [...this._pointers.values()];
+      const d = Math.hypot(a.x - b.x, a.y - b.y);
+      if (this._pinch) this._view = zoomView(this._view, this._pinch / d);
+      this._pinch = d;
+      this._moved = true;
+      return;
+    }
+    const dx = e.clientX - prev.x;
+    const dy = e.clientY - prev.y;
+    if (Math.abs(dx) + Math.abs(dy) > 0) {
+      this._moved = true;
+      this._pan(dx, dy, this._size.w / this._view.hfov || 10);
+    }
+  }
+
+  _up(e: PointerEvent) {
+    this._pointers.delete(e.pointerId);
+    if (!this._moved && this._scene) {
+      const [x, y] = this._local(e);
+      const id = hitTest(this._scene, x, y);
+      const ent = id ? this._data?.objects.find((o) => o.id === id)?.entity_id : null;
+      if (ent) {
+        this.dispatchEvent(new CustomEvent("hass-more-info", { detail: { entityId: ent }, bubbles: true, composed: true }));
+      }
+    }
   }
 
   _wheel(e: WheelEvent) {
-    if (!this._calibrating || !this._geo) return;
+    if (!e.ctrlKey) return; // plain wheel scrolls the page; Ctrl+wheel zooms (like maps)
     e.preventDefault();
-    this._geo = applyZoom(this._geo, e.deltaY > 0 ? 1.04 : 0.96);
+    this._view = zoomView(this._view, e.deltaY > 0 ? 1.08 : 0.92);
   }
 
-  _closePoly() {
-    if (this._draw && this._draw.length >= 3) this._polys = [...this._polys, this._draw];
-    this._draw = null;
+  // ---- drawing -----------------------------------------------------------
+  get _date(): Date {
+    return new Date(this._skyBase.getTime() + this._offset * 60000);
   }
 
-  _photoLoaded(e: Event) {
-    const img = e.target as unknown as { naturalWidth?: number; naturalHeight?: number };
-    if (img.naturalWidth && img.naturalHeight) this._imgAspect = img.naturalWidth / img.naturalHeight;
-  }
-
-  _openInfo(entityId: string | null) {
-    if (!entityId) return;
-    this.dispatchEvent(new CustomEvent("hass-more-info", { detail: { entityId }, bubbles: true, composed: true }));
+  _draw() {
+    const { w, h } = this._size;
+    if (!this._data || !w || !h) return;
+    const idx = sliderIndex(this._offset);
+    const sunAlt = this._sky?.sun_alt?.[idx];
+    const scene = buildScene(this._data, this._sky ? bodiesAt(this._sky, idx) : {}, this._date, this._view, w, h, sunAlt);
+    this._scene = scene;
+    const dpr = Math.min(2, window.devicePixelRatio || 1);
+    for (const cls of ["sky", "overlay"]) {
+      const c = this.renderRoot.querySelector(`canvas.${cls}`) as HTMLCanvasElement | null;
+      if (!c) continue;
+      if (c.width !== Math.round(w * dpr) || c.height !== Math.round(h * dpr)) {
+        c.width = Math.round(w * dpr);
+        c.height = Math.round(h * dpr);
+        c.style.width = `${w}px`;
+        c.style.height = `${h}px`;
+      }
+      const ctx = c.getContext("2d");
+      if (!ctx) continue;
+      ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+      if (cls === "sky") {
+        drawSky(ctx, scene, skyColors(sunAlt ?? -30), w, h);
+      } else {
+        const ill = this._sky?.moon.illumination[idx];
+        const moon = ill !== undefined ? { ill, phase: this._sky!.moon.phase[idx] } : null;
+        const highlight = new Set(this._data.objects.filter((o) => o.entity_id).map((o) => o.id));
+        drawOverlay(ctx, scene, highlight, this._hover, moon, w, h);
+      }
+    }
   }
 
   render() {
     if (this._error) return html`<ha-card><div class="err">${this._error}</div></ha-card>`;
-    const g = this._geometry;
-    if (!this._config || !this._data || !g) return html`<ha-card header="Mapa nieba">Ładowanie…</ha-card>`;
-    const H = W / g.aspect;
-    const idx = sliderIndex(this._offset);
-    const date = new Date(this._skyBase.getTime() + this._offset * 60000);
-    const sky = this._sky;
-    const scene = buildScene({ ...this._data, geometry: g }, sky ? bodiesAt(sky, idx) : {}, date, W, H, sky?.sun_alt?.[idx]);
-    const obsShown: Poly[] = this._calibrating
-      ? this._polys
-      : this._data.obstructions.map((p) => skyToPolygon(g, p));
-    const toPts = (p: Poly) => p.map(([x, y]) => `${x * W},${y * H}`).join(" ");
-    const moon = sky && sky.moon.illumination[idx] !== undefined
-      ? { ill: sky.moon.illumination[idx], phase: sky.moon.phase[idx] }
-      : null;
-
+    if (!this._data) return html`<ha-card><div class="err" style="color:inherit">Ładowanie mapy nieba…</div></ha-card>`;
+    const { w, h } = this._size;
+    const g = this._data.geometry;
+    const transform = this._photoSrc && w ? photoTransform(g, this._view, w, h) : null;
+    const opacity = this._config.photo_opacity ?? this._data.photo_opacity ?? 0.6;
+    const time = this._date.toLocaleTimeString("pl-PL", { hour: "2-digit", minute: "2-digit" });
+    const isAdmin = !!this.hass?.user?.is_admin;
     return html`<ha-card>
-      <div class="wrap">
-        <svg viewBox="0 0 ${W} ${H}" @pointerdown=${this._down} @pointermove=${this._move}
-             @pointerup=${() => (this._drag = undefined)} @wheel=${this._wheel}>
-          ${this._config.photo
-            ? svg`<image href=${this._config.photo} width=${W} height=${H} preserveAspectRatio="none"
-                 opacity=${this._config.photo_opacity ?? 0.5}
-                 @load=${(e: Event) => this._photoLoaded(e)}></image>`
-            : nothing}
-          ${scene.lines.map((l) => svg`<line x1=${l.x1} y1=${l.y1} x2=${l.x2} y2=${l.y2} stroke="#6f8fff" stroke-width="0.6" opacity="0.5"/>`)}
-          ${scene.stars.map((s) => svg`<circle cx=${s.x} cy=${s.y} r=${s.r} fill="#fff" opacity="0.9"/>`)}
-          <path d=${scene.horizon} stroke="#3c9" fill="none" stroke-width="1" opacity="0.6"/>
-          ${obsShown.map((p) => svg`<polygon points=${toPts(p)} fill="#000" opacity="0.6" stroke="#f55" stroke-width="1"/>`)}
-          ${this._draw ? svg`<polyline points=${toPts(this._draw)} fill="none" stroke="#fd0" stroke-width="2"/>` : nothing}
-          ${scene.bodies.map((b) => {
-            const known = !!b.entity_id;
-            const isMoon = b.kind === "moon" && moon;
-            return svg`<g @mouseenter=${() => (this._hover = b)} @mouseleave=${() => (this._hover = null)}
-                          @click=${() => this._openInfo(b.entity_id)} style="cursor:${known ? "pointer" : "default"}">
-              ${isMoon
-                ? svg`<g transform="translate(${b.x},${b.y}) scale(10)"><circle r="1" fill="#334"/><path d=${moonPath(moon!.ill, moon!.phase)} fill="#fff"/></g>`
-                : svg`<circle cx=${b.x} cy=${b.y} r=${b.kind === "sun" ? 9 : 5} fill=${b.kind === "sun" ? "#fd0" : "#fc8"}
-                       stroke=${known ? "#fff" : "none"} stroke-width="1.5"/>`}
-              <text x=${b.x + 12} y=${b.y + 4} fill="#fff" font-size="13">${b.name}</text></g>`;
-          })}
-        </svg>
-        ${this._hover ? this._tooltip(this._hover, W, H) : nothing}
+      <div class="stage" style="aspect-ratio:${g.aspect}">
+        <canvas class="sky"></canvas>
+        ${this._photoSrc
+          ? html`<img class="photo" src=${this._photoSrc} alt=""
+                 style="width:${w}px;height:${h}px;opacity:${opacity};display:${transform ? "block" : "none"};transform:${transform ?? "none"}"/>`
+          : nothing}
+        <canvas class="overlay" @pointerdown=${this._down} @pointermove=${this._move} @pointerup=${this._up}
+                @pointercancel=${this._up} @pointerleave=${() => (this._hover = null)} @wheel=${this._wheel}></canvas>
+        <div class="compass glass">${compassLabel(this._view.az)}</div>
+        <button class="fab recenter glass" title="Wróć do okna" @click=${() => this._recenter()}>⌖</button>
+        ${this._hover ? this._tooltip() : nothing}
+        <div class="bar glass">
+          <button title=${this._playing ? "Pauza" : "Odtwórz noc"} @click=${() => this._togglePlay()}>${this._playing ? "⏸" : "▶"}</button>
+          <input type="range" min=${-RANGE_MIN} max=${RANGE_MIN} step="1" .value=${String(Math.round(this._offset))}
+                 @input=${(e: Event) => { this._playing = false; this._offset = Number((e.target as HTMLInputElement).value); }}/>
+          <span class="time">${time}${this._offset === 0 ? " · teraz" : ""}</span>
+          <button title="Teraz" @click=${() => { this._playing = false; this._offset = 0; }}>●</button>
+          ${isAdmin ? html`<button class="wizard-btn" title="Kreator" @click=${() => (this._wizardOpen = true)}>⚙</button>` : nothing}
+        </div>
       </div>
-      <div class="bar">
-        <input type="range" min="-720" max="720" step="10" .value=${String(this._offset)}
-               @input=${(e: Event) => (this._offset = Number((e.target as HTMLInputElement).value))}/>
-        <span>${this._offset === 0 ? "teraz" : `${this._offset > 0 ? "+" : ""}${(this._offset / 60).toFixed(1)} h`}</span>
-        <button @click=${() => (this._offset = 0)}>Teraz</button>
-        ${this._isAdmin && !this._calibrating ? html`<button @click=${() => this._startCalibration()}>Kalibruj</button>` : nothing}
-      </div>
-      ${this._calibrating ? this._calibrationBar() : nothing}
+      ${this._wizardOpen
+        ? html`<mapa-nieba-wizard .hass=${this.hass} .data=${this._data} .photoUrl=${this._config.photo ? "" : this._photoSrc}
+                 .rises=${this._sky?.rises} @close=${() => (this._wizardOpen = false)} @saved=${() => this._afterSave()}></mapa-nieba-wizard>`
+        : nothing}
     </ha-card>`;
   }
 
-  _tooltip(b: any, w: number, h: number) {
-    const st = b.entity_id && this._offset === 0 ? this.hass?.states?.[b.entity_id]?.state : undefined;
-    return html`<div class="tip" style="left:${(b.x / w) * 100}%;top:${(b.y / h) * 100}%">
-      <b>${b.name}</b><br/>wys. ${b.alt.toFixed(1)}°, azym. ${b.az.toFixed(1)}°
-      ${st ? html`<br/>${STATE_LABELS[st] ?? st}` : nothing}</div>`;
+  async _afterSave() {
+    this._wizardOpen = false;
+    // saving options reloads the integration; retry until it answers again
+    for (let i = 0; i < 6; i++) {
+      await new Promise((r) => setTimeout(r, 1000));
+      try {
+        this._data = await this.hass.callWS({ type: "mapa_nieba/config" });
+        this._view = fromWindow(this._data!.geometry);
+        await this._resolvePhoto();
+        await this._loadSky();
+        return;
+      } catch {
+        /* integration still reloading */
+      }
+    }
   }
 
-  _calibrationBar() {
-    const g = this._geo!;
-    return html`<div class="bar">
-      <span>Przeciągnij mapę, kółkiem zmień zoom.</span>
-      <label>Obrót <input type="range" min="-30" max="30" step="0.5" .value=${String(g.roll)}
-        @input=${(e: Event) => (this._geo = applyRoll(g, Number((e.target as HTMLInputElement).value)))}/></label>
-      <span>az ${g.az_center.toFixed(1)}° alt ${g.alt_center.toFixed(1)}° fov ${g.hfov.toFixed(1)}°</span>
-      ${this._draw
-        ? html`<button @click=${() => this._closePoly()}>Zamknij kształt</button>`
-        : html`<button @click=${() => (this._draw = [])}>Dodaj przeszkodę</button>
-               <button @click=${() => (this._polys = this._polys.slice(0, -1))}>Cofnij przeszkodę</button>`}
-      <button @click=${() => this._save()}>Zapisz</button>
-      ${this._saveError ? html`<span class="err">${this._saveError}</span>` : nothing}
-      <button @click=${() => ((this._calibrating = false), (this._draw = null))}>Anuluj</button>
-    </div>`;
+  _tooltip() {
+    const b = this._scene?.bodies.find((x) => x.id === this._hover);
+    if (!b) return nothing;
+    const st = b.entity_id && this._offset === 0 ? this.hass?.states?.[b.entity_id]?.state : undefined;
+    return html`<div class="tip glass" style="left:${b.x}px;top:${b.y}px">
+      <b>${b.name}</b><br/>wys. ${b.alt.toFixed(1)}° · azym. ${b.az.toFixed(1)}°
+      ${st ? html`<br/>${STATE_LABELS[st] ?? st}` : nothing}</div>`;
   }
 }
 
-customElements.define("mapa-nieba-card", MapaNiebaCard);
+if (!customElements.get("mapa-nieba-card")) customElements.define("mapa-nieba-card", MapaNiebaCard);
 (window as any).customCards = (window as any).customCards || [];
-(window as any).customCards.push({
-  type: "mapa-nieba-card",
-  name: "Mapa nieba",
-  description: "Niebo z balkonu: planety, gwiazdy i Księżyc na zdjęciu okna.",
-});
+if (!(window as any).customCards.some((c: any) => c.type === "mapa-nieba-card")) {
+  (window as any).customCards.push({
+    type: "mapa-nieba-card",
+    name: "Mapa nieba",
+    description: "Niebo z balkonu w stylu planetarium: planety, gwiazdy, konstelacje i Księżyc.",
+    preview: true,
+  });
+}

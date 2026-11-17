@@ -19,7 +19,10 @@ async def async_setup(hass: "HomeAssistant", config: dict) -> bool:
     from homeassistant.components.frontend import add_extra_js_url
     from homeassistant.components.http import StaticPathConfig
 
+    from .photo import MapaNiebaPhotoView
+
     websocket_api.async_register(hass)
+    hass.http.register_view(MapaNiebaPhotoView())
     url = "/mapa_nieba/mapa-nieba-card.js"
     path = Path(__file__).parent / "www" / "mapa-nieba-card.js"
     await hass.http.async_register_static_paths([StaticPathConfig(url, str(path), False)])

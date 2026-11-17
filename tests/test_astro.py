@@ -52,3 +52,11 @@ def test_track_length_and_azimuth_range():
 def test_missing_ephemeris_raises_readable_error(tmp_path):
     with pytest.raises(FileNotFoundError, match="efemerydy"):
         load_ephemeris(tmp_path / "nope.bsp")
+
+
+def test_next_rise():
+    from custom_components.mapa_nieba.astro import next_rise
+    when = datetime(2026, 1, 15, 20, 0, tzinfo=UTC)
+    t, az = next_rise(CATALOG["sun"], SZCZECIN, when)
+    assert t > when and 100 < az < 140  # winter sunrise in the south-east
+    assert next_rise(CATALOG["polaris"], SZCZECIN, when) is None

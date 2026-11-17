@@ -45,28 +45,11 @@ const STATE_LABELS = {
     hidden: "niewidoczny",
 };
 
-const clamp = (x, lo, hi) => Math.min(hi, Math.max(lo, x));
-const wrap360 = (x) => ((x % 360) + 360) % 360;
-/** Dragging the map right (dx>0) means the camera looks further left; dragging down means looking higher. */
-function applyDrag(g, dx, dy, pxPerDeg) {
-    return {
-        ...g,
-        az_center: wrap360(g.az_center - dx / pxPerDeg),
-        alt_center: clamp(g.alt_center + dy / pxPerDeg, -10, 90),
-    };
-}
-function applyZoom(g, factor) {
-    return { ...g, hfov: clamp(g.hfov * factor, 10, 120) };
-}
-function applyRoll(g, roll) {
-    return { ...g, roll: clamp(roll, -180, 180) };
-}
-
-const rad$1 = (d) => (d * Math.PI) / 180;
+const rad$2 = (d) => (d * Math.PI) / 180;
 const deg$1 = (r) => (r * 180) / Math.PI;
 function basis(g) {
-    const az = rad$1(g.az_center);
-    const alt = rad$1(g.alt_center);
+    const az = rad$2(g.az_center);
+    const alt = rad$2(g.alt_center);
     const f = [Math.sin(az) * Math.cos(alt), Math.cos(az) * Math.cos(alt), Math.sin(alt)];
     const r = [Math.cos(az), -Math.sin(az), 0];
     const u = [-Math.sin(alt) * Math.sin(az), -Math.sin(alt) * Math.cos(az), Math.cos(alt)];
@@ -75,25 +58,25 @@ function basis(g) {
 const dot = (a, b) => a[0] * b[0] + a[1] * b[1] + a[2] * b[2];
 function project(g, az, alt) {
     const { f, r, u } = basis(g);
-    const a = rad$1(az);
-    const e = rad$1(alt);
+    const a = rad$2(az);
+    const e = rad$2(alt);
     const v = [Math.sin(a) * Math.cos(e), Math.cos(a) * Math.cos(e), Math.sin(e)];
     const c = dot(v, f);
     if (c <= 1e-9)
         return null;
     const px = dot(v, r) / c;
     const py = dot(v, u) / c;
-    const rho = rad$1(g.roll);
+    const rho = rad$2(g.roll);
     const qx = px * Math.cos(rho) + py * Math.sin(rho);
     const qy = -px * Math.sin(rho) + py * Math.cos(rho);
-    const th = Math.tan(rad$1(g.hfov) / 2);
+    const th = Math.tan(rad$2(g.hfov) / 2);
     return [0.5 + qx / (2 * th), 0.5 - (qy * g.aspect) / (2 * th)];
 }
 function unproject(g, x, y) {
-    const th = Math.tan(rad$1(g.hfov) / 2);
+    const th = Math.tan(rad$2(g.hfov) / 2);
     const qx = (x - 0.5) * 2 * th;
     const qy = (-(y - 0.5) * 2 * th) / g.aspect;
-    const rho = rad$1(g.roll);
+    const rho = rad$2(g.roll);
     const px = qx * Math.cos(rho) - qy * Math.sin(rho);
     const py = qx * Math.sin(rho) + qy * Math.cos(rho);
     const { f, r, u } = basis(g);
@@ -104,28 +87,245 @@ function unproject(g, x, y) {
     return [az, alt];
 }
 
-/** Image polygon (normalised x,y) -> az/alt polygon; every edge is split into `subdivide` pieces. */
-function polygonToSky(g, pts, subdivide = 8) {
-    const out = [];
-    for (let i = 0; i < pts.length; i++) {
-        const [x1, y1] = pts[i];
-        const [x2, y2] = pts[(i + 1) % pts.length];
-        for (let k = 0; k < subdivide; k++) {
-            const t = k / subdivide;
-            out.push(unproject(g, x1 + (x2 - x1) * t, y1 + (y2 - y1) * t));
+const clamp = (x, lo, hi) => Math.min(hi, Math.max(lo, x));
+const wrap360$1 = (x) => ((x % 360) + 360) % 360;
+const MIN_FOV = 20;
+const MAX_FOV = 120;
+function viewGeometry(v, aspect) {
+    return { az_center: v.az, alt_center: v.alt, hfov: v.hfov, aspect, roll: v.roll ?? 0 };
+}
+function fromWindow(g) {
+    return { az: g.az_center, alt: g.alt_center, hfov: clamp(g.hfov, MIN_FOV, MAX_FOV) };
+}
+/** Dragging right (dx>0) turns left; dragging down looks higher. */
+function panView(v, dx, dy, pxPerDeg) {
+    return { ...v, az: wrap360$1(v.az - dx / pxPerDeg), alt: clamp(v.alt + dy / pxPerDeg, -30, 89) };
+}
+function zoomView(v, factor) {
+    return { ...v, hfov: clamp(v.hfov * factor, MIN_FOV, MAX_FOV) };
+}
+/** 1 = full night sky, 0.12 = barely visible in daylight. */
+function skyVisibility(sunAlt) {
+    if (sunAlt <= -18)
+        return 1;
+    if (sunAlt >= 0)
+        return 0.12;
+    return 0.12 + (0.88 * -sunAlt) / 18;
+}
+const hex = (c) => "#" + c.map((x) => Math.round(x).toString(16).padStart(2, "0")).join("");
+const parse = (h) => [1, 3, 5].map((i) => parseInt(h.slice(i, i + 2), 16));
+const mix = (a, b, t) => {
+    const A = parse(a);
+    const B = parse(b);
+    return hex(A.map((x, i) => x + (B[i] - x) * t));
+};
+// keyframes by Sun altitude: day, twilight, night
+const KEYS = [
+    [5, "#4a86d0", "#a9cdf0"],
+    [-6, "#1e2f63", "#e08a5a"],
+    [-18, "#050816", "#1b2550"],
+];
+function skyColors(sunAlt) {
+    if (sunAlt >= KEYS[0][0])
+        return { top: KEYS[0][1], bottom: KEYS[0][2] };
+    if (sunAlt <= KEYS[2][0])
+        return { top: KEYS[2][1], bottom: KEYS[2][2] };
+    const [hi, lo] = sunAlt >= KEYS[1][0] ? [KEYS[0], KEYS[1]] : [KEYS[1], KEYS[2]];
+    const t = (hi[0] - sunAlt) / (hi[0] - lo[0]);
+    return { top: mix(hi[1], lo[1], t), bottom: mix(hi[2], lo[2], t) };
+}
+
+/** 3x3 homography (row-major, h33 = 1) mapping 4 src points onto 4 dst points. */
+function homography(src, dst) {
+    const A = [];
+    const b = [];
+    for (let i = 0; i < 4; i++) {
+        const [x, y] = src[i];
+        const [u, v] = dst[i];
+        A.push([x, y, 1, 0, 0, 0, -u * x, -u * y]);
+        b.push(u);
+        A.push([0, 0, 0, x, y, 1, -v * x, -v * y]);
+        b.push(v);
+    }
+    return [...solve(A, b), 1];
+}
+/** Gaussian elimination with partial pivoting. */
+function solve(A, b) {
+    const n = b.length;
+    const M = A.map((row, i) => [...row, b[i]]);
+    for (let c = 0; c < n; c++) {
+        let p = c;
+        for (let r = c + 1; r < n; r++)
+            if (Math.abs(M[r][c]) > Math.abs(M[p][c]))
+                p = r;
+        [M[c], M[p]] = [M[p], M[c]];
+        for (let r = 0; r < n; r++) {
+            if (r === c)
+                continue;
+            const f = M[r][c] / M[c][c];
+            for (let k = c; k <= n; k++)
+                M[r][k] -= f * M[c][k];
         }
     }
-    return out;
+    return M.map((row, i) => row[n] / row[i]);
 }
-/** az/alt polygon -> image polygon (vertices behind the camera are dropped). */
-function skyToPolygon(g, poly) {
-    const out = [];
-    for (const [az, alt] of poly) {
-        const p = project(g, az, alt);
-        if (p)
-            out.push(p);
+/**
+ * CSS matrix3d placing a w x h <img> (transform-origin 0 0) where the window photo
+ * appears in `view`. Null when any corner is behind the viewer.
+ */
+function photoTransform(win, view, w, h) {
+    const vg = viewGeometry(view, w / h); // container aspect: the stage may be clamped
+    const corners = [[0, 0], [1, 0], [1, 1], [0, 1]];
+    const dst = [];
+    for (const [cx, cy] of corners) {
+        const [az, alt] = unproject(win, cx, cy);
+        const p = project(vg, az, alt);
+        if (!p)
+            return null;
+        dst.push([p[0] * w, p[1] * h]);
     }
-    return out;
+    const H = homography(corners.map(([x, y]) => [x * w, y * h]), dst);
+    if (H.some((x) => !Number.isFinite(x)))
+        return null;
+    const [a, b, c, d, e, f, g, k] = H;
+    return `matrix3d(${[a, d, 0, g, b, e, 0, k, 0, 0, 1, 0, c, f, 0, 1].join(",")})`;
+}
+
+const PLANET_COLORS = {
+    mercury: "#c9c3b8",
+    venus: "#fff4d6",
+    mars: "#ff8a5c",
+    jupiter: "#f3d9b1",
+    saturn: "#e8d18f",
+};
+/** Background layer: sky gradient, constellation lines, stars, ground. */
+function drawSky(ctx, scene, colors, w, h) {
+    const g = ctx.createLinearGradient(0, 0, 0, h);
+    g.addColorStop(0, colors.top);
+    g.addColorStop(1, colors.bottom);
+    ctx.fillStyle = g;
+    ctx.fillRect(0, 0, w, h);
+    ctx.lineWidth = 1;
+    for (const l of scene.lines) {
+        ctx.strokeStyle = `rgba(120,150,255,${0.35 * l.a})`;
+        ctx.beginPath();
+        ctx.moveTo(l.x1, l.y1);
+        ctx.lineTo(l.x2, l.y2);
+        ctx.stroke();
+    }
+    for (const s of scene.stars) {
+        if (s.r > 1.8) {
+            const glow = ctx.createRadialGradient(s.x, s.y, 0, s.x, s.y, s.r * 4);
+            glow.addColorStop(0, `rgba(200,220,255,${0.35 * s.a})`);
+            glow.addColorStop(1, "rgba(200,220,255,0)");
+            ctx.fillStyle = glow;
+            ctx.beginPath();
+            ctx.arc(s.x, s.y, s.r * 4, 0, Math.PI * 2);
+            ctx.fill();
+        }
+        ctx.fillStyle = `rgba(255,255,255,${s.a})`;
+        ctx.beginPath();
+        ctx.arc(s.x, s.y, s.r, 0, Math.PI * 2);
+        ctx.fill();
+    }
+    if (scene.ground.length >= 3) {
+        ctx.fillStyle = "rgba(10,12,20,0.92)";
+        ctx.beginPath();
+        scene.ground.forEach(([x, y], i) => (i ? ctx.lineTo(x, y) : ctx.moveTo(x, y)));
+        ctx.closePath();
+        ctx.fill();
+    }
+    if (scene.horizon.length >= 2) {
+        ctx.strokeStyle = "rgba(80,200,150,0.55)";
+        ctx.beginPath();
+        scene.horizon.forEach(([x, y], i) => (i ? ctx.lineTo(x, y) : ctx.moveTo(x, y)));
+        ctx.stroke();
+    }
+}
+/** Top layer: obstructions, constellation names, bodies with labels. */
+function drawOverlay(ctx, scene, highlight, hover, moon, w, h) {
+    ctx.clearRect(0, 0, w, h);
+    for (const poly of scene.obstructions) {
+        ctx.fillStyle = "rgba(0,0,0,0.45)";
+        ctx.strokeStyle = "rgba(255,110,110,0.7)";
+        ctx.beginPath();
+        poly.forEach(([x, y], i) => (i ? ctx.lineTo(x, y) : ctx.moveTo(x, y)));
+        ctx.closePath();
+        ctx.fill();
+        ctx.stroke();
+    }
+    ctx.textAlign = "center";
+    ctx.font = "italic 12px system-ui, sans-serif";
+    for (const l of scene.labels) {
+        ctx.fillStyle = `rgba(170,185,255,${0.6 * l.a})`;
+        ctx.fillText(l.text, l.x, l.y);
+    }
+    ctx.textAlign = "left";
+    ctx.font = "13px system-ui, sans-serif";
+    for (const b of scene.bodies)
+        drawBody(ctx, b, highlight.has(b.id), hover === b.id, moon);
+}
+function drawBody(ctx, b, highlighted, hovered, moon) {
+    ctx.globalAlpha = b.a;
+    if (b.kind === "sun") {
+        const glow = ctx.createRadialGradient(b.x, b.y, 0, b.x, b.y, 34);
+        glow.addColorStop(0, "rgba(255,240,170,0.9)");
+        glow.addColorStop(1, "rgba(255,220,120,0)");
+        ctx.fillStyle = glow;
+        ctx.beginPath();
+        ctx.arc(b.x, b.y, 34, 0, Math.PI * 2);
+        ctx.fill();
+        ctx.fillStyle = "#fff3b0";
+        ctx.beginPath();
+        ctx.arc(b.x, b.y, 10, 0, Math.PI * 2);
+        ctx.fill();
+    }
+    else if (b.kind === "moon") {
+        const r = 11;
+        ctx.fillStyle = "#2a2f45";
+        ctx.beginPath();
+        ctx.arc(b.x, b.y, r, 0, Math.PI * 2);
+        ctx.fill();
+        const d = moon ? moonPath(moon.ill, moon.phase) : "";
+        if (d && typeof Path2D !== "undefined") {
+            ctx.save();
+            ctx.translate(b.x, b.y);
+            ctx.scale(r, r);
+            ctx.fillStyle = "#f4f1e6";
+            ctx.fill(new Path2D(d));
+            ctx.restore();
+        }
+    }
+    else {
+        const r = b.kind === "planet" ? 4.5 : 3.5;
+        ctx.fillStyle = PLANET_COLORS[b.id] ?? "#ffe7b0";
+        ctx.beginPath();
+        ctx.arc(b.x, b.y, r, 0, Math.PI * 2);
+        ctx.fill();
+    }
+    if (highlighted || hovered) {
+        ctx.strokeStyle = hovered ? "#ffffff" : "rgba(255,255,255,0.7)";
+        ctx.lineWidth = 1.5;
+        ctx.beginPath();
+        ctx.arc(b.x, b.y, b.kind === "sun" ? 15 : b.kind === "moon" ? 15 : 8, 0, Math.PI * 2);
+        ctx.stroke();
+    }
+    ctx.fillStyle = "#ffffff";
+    ctx.fillText(b.name, b.x + 12, b.y + 4);
+    ctx.globalAlpha = 1;
+}
+/** Id of the body nearest to (x, y) within `radius` pixels. */
+function hitTest(scene, x, y, radius = 14) {
+    let best = null;
+    let bestD = radius;
+    for (const b of scene.bodies) {
+        const d = Math.hypot(b.x - x, b.y - y);
+        if (d <= bestD) {
+            best = b.id;
+            bestD = d;
+        }
+    }
+    return best;
 }
 
 var stars = [
@@ -19940,12 +20140,1265 @@ var lines = [
 		117245
 	]
 ];
+var constellations = [
+	{
+		id: "And",
+		name: "Andromeda",
+		hips: [
+			677,
+			3092,
+			3881,
+			4436,
+			5447,
+			9640
+		]
+	},
+	{
+		id: "Ant",
+		name: "Pompa",
+		hips: [
+			48926,
+			51172
+		]
+	},
+	{
+		id: "Aps",
+		name: "Ptak Rajski",
+		hips: [
+			72370,
+			81065,
+			81852
+		]
+	},
+	{
+		id: "Aql",
+		name: "Orzeł",
+		hips: [
+			93244,
+			93747,
+			93805,
+			95501,
+			97278,
+			97649,
+			97804,
+			98036,
+			99473
+		]
+	},
+	{
+		id: "Aqr",
+		name: "Wodnik",
+		hips: [
+			102618,
+			106278,
+			109074,
+			109139,
+			110003,
+			110395,
+			110960,
+			111123,
+			111497,
+			112716,
+			112961,
+			113136,
+			114341,
+			114855,
+			115438
+		]
+	},
+	{
+		id: "Ara",
+		name: "Ołtarz",
+		hips: [
+			82363,
+			83081,
+			85258,
+			85267,
+			85727,
+			85792,
+			88714
+		]
+	},
+	{
+		id: "Ari",
+		name: "Baran",
+		hips: [
+			8832,
+			8903,
+			9884,
+			13209
+		]
+	},
+	{
+		id: "Aur",
+		name: "Woźnica",
+		hips: [
+			23015,
+			23453,
+			24608,
+			25428,
+			28360,
+			28380
+		]
+	},
+	{
+		id: "Boo",
+		name: "Wolarz",
+		hips: [
+			67459,
+			67927,
+			69673,
+			71053,
+			71075,
+			71795,
+			72105,
+			73555,
+			74666
+		]
+	},
+	{
+		id: "CMa",
+		name: "Wielki Pies",
+		hips: [
+			30122,
+			30324,
+			31416,
+			31592,
+			32349,
+			32759,
+			33160,
+			33347,
+			33579,
+			33856,
+			33977,
+			34045,
+			34444,
+			35037,
+			35904
+		]
+	},
+	{
+		id: "CMi",
+		name: "Mały Pies",
+		hips: [
+			36188,
+			37279
+		]
+	},
+	{
+		id: "CVn",
+		name: "Psy Gończe",
+		hips: [
+			61317,
+			63125
+		]
+	},
+	{
+		id: "Cae",
+		name: "Rylec",
+		hips: [
+			21060,
+			21770,
+			21861
+		]
+	},
+	{
+		id: "Cam",
+		name: "Żyrafa",
+		hips: [
+			16228,
+			17959,
+			18505,
+			22783,
+			25110
+		]
+	},
+	{
+		id: "Cap",
+		name: "Koziorożec",
+		hips: [
+			100064,
+			100345,
+			102485,
+			102978,
+			104139,
+			105515,
+			105881,
+			106985,
+			107556
+		]
+	},
+	{
+		id: "Car",
+		name: "Kil",
+		hips: [
+			30438,
+			31685,
+			39429,
+			41037,
+			42568,
+			45080,
+			45238,
+			45556,
+			50099,
+			50371,
+			51232,
+			52419,
+			52468,
+			53253,
+			54463
+		]
+	},
+	{
+		id: "Cas",
+		name: "Kasjopeja",
+		hips: [
+			746,
+			3179,
+			4427,
+			6686,
+			8886
+		]
+	},
+	{
+		id: "Cen",
+		name: "Centaur",
+		hips: [
+			56480,
+			56561,
+			59196,
+			60823,
+			61932,
+			65109,
+			65936,
+			66657,
+			67464,
+			67472,
+			68002,
+			68282,
+			68702,
+			68933,
+			71352,
+			71683,
+			73334
+		]
+	},
+	{
+		id: "Cep",
+		name: "Cefeusz",
+		hips: [
+			105199,
+			106032,
+			109492,
+			112724,
+			116727
+		]
+	},
+	{
+		id: "Cet",
+		name: "Wieloryb",
+		hips: [
+			1562,
+			3419,
+			5364,
+			6537,
+			8102,
+			8645,
+			10324,
+			11345,
+			11484,
+			11783,
+			12093,
+			12387,
+			12390,
+			12706,
+			12770,
+			12828,
+			13954,
+			14135
+		]
+	},
+	{
+		id: "Cha",
+		name: "Kameleon",
+		hips: [
+			40702,
+			51839,
+			60000
+		]
+	},
+	{
+		id: "Cir",
+		name: "Cyrkiel",
+		hips: [
+			71908,
+			74824,
+			75323
+		]
+	},
+	{
+		id: "Cnc",
+		name: "Rak",
+		hips: [
+			40526,
+			40843,
+			42806,
+			42911,
+			43103,
+			44066
+		]
+	},
+	{
+		id: "Col",
+		name: "Gołąb",
+		hips: [
+			25859,
+			26634,
+			27628,
+			28199,
+			28328,
+			29807,
+			30277
+		]
+	},
+	{
+		id: "Com",
+		name: "Warkocz Bereniki",
+		hips: [
+			60742,
+			64241,
+			64394
+		]
+	},
+	{
+		id: "CrA",
+		name: "Korona Południowa",
+		hips: [
+			90887,
+			91875,
+			92953,
+			92989,
+			93174,
+			93542,
+			93825,
+			94005,
+			94114,
+			94160
+		]
+	},
+	{
+		id: "CrB",
+		name: "Korona Północna",
+		hips: [
+			75695,
+			76127,
+			76267,
+			76952,
+			77512,
+			78159,
+			78493
+		]
+	},
+	{
+		id: "Crt",
+		name: "Puchar",
+		hips: [
+			53740,
+			54682,
+			55282,
+			55687,
+			55705,
+			56633,
+			57283,
+			58188
+		]
+	},
+	{
+		id: "Cru",
+		name: "Krzyż Południa",
+		hips: [
+			59747,
+			60718,
+			61084,
+			62434
+		]
+	},
+	{
+		id: "Crv",
+		name: "Kruk",
+		hips: [
+			59199,
+			59316,
+			59803,
+			60965,
+			61174,
+			61359
+		]
+	},
+	{
+		id: "Cyg",
+		name: "Łabędź",
+		hips: [
+			94779,
+			95853,
+			95947,
+			97165,
+			98110,
+			100453,
+			102098,
+			102488,
+			104732,
+			107310
+		]
+	},
+	{
+		id: "Del",
+		name: "Delfin",
+		hips: [
+			101421,
+			101769,
+			101958,
+			102281,
+			102532
+		]
+	},
+	{
+		id: "Dor",
+		name: "Złota Ryba",
+		hips: [
+			19893,
+			21281,
+			26069,
+			27100,
+			27890
+		]
+	},
+	{
+		id: "Dra",
+		name: "Smok",
+		hips: [
+			56211,
+			61281,
+			68756,
+			75458,
+			78527,
+			80331,
+			83895,
+			85670,
+			85829,
+			87585,
+			87833,
+			89937,
+			94376,
+			94648,
+			97433
+		]
+	},
+	{
+		id: "Equ",
+		name: "Źrebię",
+		hips: [
+			104521,
+			104858,
+			104987,
+			105570
+		]
+	},
+	{
+		id: "Eri",
+		name: "Erydan",
+		hips: [
+			7588,
+			9007,
+			10602,
+			11407,
+			12413,
+			12486,
+			12843,
+			13701,
+			13847,
+			14146,
+			15197,
+			15474,
+			15510,
+			16537,
+			16611,
+			17378,
+			17651,
+			17797,
+			17874,
+			20042,
+			20535,
+			21393,
+			21444,
+			21594,
+			22109,
+			22701,
+			23875,
+			23972
+		]
+	},
+	{
+		id: "For",
+		name: "Piec",
+		hips: [
+			13147,
+			14879
+		]
+	},
+	{
+		id: "Gem",
+		name: "Bliźnięta",
+		hips: [
+			28734,
+			29655,
+			30343,
+			30883,
+			31681,
+			32246,
+			32362,
+			33018,
+			34088,
+			34693,
+			35350,
+			35550,
+			36046,
+			36850,
+			36962,
+			37740,
+			37826
+		]
+	},
+	{
+		id: "Gru",
+		name: "Żuraw",
+		hips: [
+			108085,
+			109111,
+			109268,
+			110997,
+			112122,
+			112623,
+			113638,
+			114131,
+			114421
+		]
+	},
+	{
+		id: "Her",
+		name: "Herkules",
+		hips: [
+			77760,
+			79992,
+			80170,
+			80816,
+			81126,
+			81693,
+			81833,
+			83207,
+			84379,
+			84380,
+			84606,
+			85112,
+			85693,
+			86414,
+			86974,
+			87808,
+			87933,
+			88794
+		]
+	},
+	{
+		id: "Hor",
+		name: "Zegar",
+		hips: [
+			12484,
+			14240,
+			19747
+		]
+	},
+	{
+		id: "Hya",
+		name: "Hydra",
+		hips: [
+			42313,
+			42402,
+			42799,
+			43109,
+			43234,
+			43813,
+			45336,
+			45751,
+			46390,
+			46509,
+			46776,
+			47452,
+			48356,
+			49841,
+			51069,
+			52943,
+			54204,
+			56343,
+			57936,
+			64166,
+			64962,
+			68895,
+			69415,
+			70306,
+			72571
+		]
+	},
+	{
+		id: "Hyi",
+		name: "Wąż Wodny",
+		hips: [
+			2021,
+			9236,
+			11001,
+			12394,
+			17678
+		]
+	},
+	{
+		id: "Ind",
+		name: "Indianin",
+		hips: [
+			101772,
+			103227,
+			105319
+		]
+	},
+	{
+		id: "LMi",
+		name: "Mały Lew",
+		hips: [
+			46952,
+			49593,
+			51233,
+			53229
+		]
+	},
+	{
+		id: "Lac",
+		name: "Jaszczurka",
+		hips: [
+			109937,
+			110538,
+			110609,
+			111022,
+			111104,
+			111169
+		]
+	},
+	{
+		id: "Leo",
+		name: "Lew",
+		hips: [
+			47908,
+			48455,
+			49583,
+			49669,
+			50335,
+			50583,
+			54872,
+			54879,
+			57632
+		]
+	},
+	{
+		id: "Lep",
+		name: "Zając",
+		hips: [
+			23685,
+			24244,
+			24305,
+			24327,
+			24845,
+			24873,
+			25606,
+			25985,
+			27072,
+			27288,
+			27654,
+			28103,
+			28910
+		]
+	},
+	{
+		id: "Lib",
+		name: "Waga",
+		hips: [
+			72622,
+			73714,
+			74785,
+			76333,
+			77853
+		]
+	},
+	{
+		id: "Lup",
+		name: "Wilk",
+		hips: [
+			70576,
+			71536,
+			71860,
+			73273,
+			74395,
+			75141,
+			75177,
+			76297,
+			76552,
+			77634,
+			78384
+		]
+	},
+	{
+		id: "Lyn",
+		name: "Ryś",
+		hips: [
+			30060,
+			33449,
+			36145,
+			41075,
+			44248,
+			44700,
+			45688,
+			45860
+		]
+	},
+	{
+		id: "Lyr",
+		name: "Lutnia",
+		hips: [
+			91262,
+			91971,
+			92420,
+			92791,
+			93194
+		]
+	},
+	{
+		id: "Mic",
+		name: "Mikroskop",
+		hips: [
+			102831,
+			103738,
+			105140
+		]
+	},
+	{
+		id: "Mon",
+		name: "Jednorożec",
+		hips: [
+			29651,
+			30419,
+			30867,
+			31216,
+			31978,
+			32533,
+			34769,
+			37447,
+			39211,
+			39863
+		]
+	},
+	{
+		id: "Mus",
+		name: "Mucha",
+		hips: [
+			57363,
+			61199,
+			61585,
+			62322
+		]
+	},
+	{
+		id: "Nor",
+		name: "Węgielnica",
+		hips: [
+			78639,
+			79509,
+			80000,
+			80582
+		]
+	},
+	{
+		id: "Oct",
+		name: "Oktant",
+		hips: [
+			70638,
+			107089,
+			112405
+		]
+	},
+	{
+		id: "Oph",
+		name: "Wężownik",
+		hips: [
+			79882,
+			81377,
+			83000,
+			84012,
+			85755,
+			86032,
+			86742
+		]
+	},
+	{
+		id: "Ori",
+		name: "Orion",
+		hips: [
+			22449,
+			22509,
+			22549,
+			22730,
+			22797,
+			22845,
+			23123,
+			24436,
+			25336,
+			25930,
+			26207,
+			26311,
+			26727,
+			27366,
+			27913,
+			27989,
+			28614,
+			28716,
+			29038,
+			29426,
+			29434
+		]
+	},
+	{
+		id: "Pav",
+		name: "Paw",
+		hips: [
+			86929,
+			88866,
+			90098,
+			91792,
+			92609,
+			93015,
+			98495,
+			99240,
+			100751,
+			102395,
+			105858
+		]
+	},
+	{
+		id: "Peg",
+		name: "Pegaz",
+		hips: [
+			677,
+			1067,
+			107315,
+			107354,
+			109176,
+			109427,
+			112029,
+			112158,
+			112440,
+			112447,
+			112748,
+			113881,
+			113963
+		]
+	},
+	{
+		id: "Per",
+		name: "Perseusz",
+		hips: [
+			13254,
+			13268,
+			14328,
+			14354,
+			14576,
+			15863,
+			17358,
+			17448,
+			18246,
+			18532,
+			18614
+		]
+	},
+	{
+		id: "Phe",
+		name: "Feniks",
+		hips: [
+			765,
+			2072,
+			2081,
+			5165,
+			5348,
+			6867,
+			7083,
+			8837
+		]
+	},
+	{
+		id: "Pic",
+		name: "Malarz",
+		hips: [
+			27321,
+			27530,
+			32607
+		]
+	},
+	{
+		id: "PsA",
+		name: "Ryba Południowa",
+		hips: [
+			107608,
+			108661,
+			109422,
+			111188,
+			111954,
+			113246,
+			113368
+		]
+	},
+	{
+		id: "Psc",
+		name: "Ryby",
+		hips: [
+			1645,
+			4889,
+			4906,
+			5742,
+			6193,
+			7007,
+			7097,
+			7884,
+			8198,
+			8833,
+			9487,
+			114971,
+			115227,
+			115738,
+			115830,
+			116771,
+			116928,
+			117245,
+			118268
+		]
+	},
+	{
+		id: "Pup",
+		name: "Rufa",
+		hips: [
+			31685,
+			32768,
+			35264,
+			36377,
+			38146,
+			39429,
+			39757
+		]
+	},
+	{
+		id: "Pyx",
+		name: "Kompas",
+		hips: [
+			42515,
+			42828,
+			43409
+		]
+	},
+	{
+		id: "Ret",
+		name: "Sieć",
+		hips: [
+			17440,
+			18597,
+			19780,
+			19921
+		]
+	},
+	{
+		id: "Scl",
+		name: "Rzeźbiarz",
+		hips: [
+			4577,
+			115102,
+			116231
+		]
+	},
+	{
+		id: "Sco",
+		name: "Skorpion",
+		hips: [
+			78265,
+			78401,
+			78820,
+			80763,
+			81266,
+			82396,
+			82514,
+			82671,
+			84143,
+			85927,
+			86228,
+			86670,
+			87073
+		]
+	},
+	{
+		id: "Sct",
+		name: "Tarcza",
+		hips: [
+			90595,
+			91117,
+			92175,
+			92202,
+			92814
+		]
+	},
+	{
+		id: "Ser",
+		name: "Wąż",
+		hips: [
+			76276,
+			77070,
+			77233,
+			77450,
+			77516,
+			77622,
+			78072,
+			79593,
+			84880,
+			86263,
+			86565,
+			88048,
+			89962,
+			90441,
+			92946
+		]
+	},
+	{
+		id: "Sex",
+		name: "Sekstant",
+		hips: [
+			49641,
+			51437
+		]
+	},
+	{
+		id: "Sge",
+		name: "Strzała",
+		hips: [
+			96757,
+			96837,
+			97365,
+			98337,
+			98920
+		]
+	},
+	{
+		id: "Sgr",
+		name: "Strzelec",
+		hips: [
+			87072,
+			88635,
+			89341,
+			89642,
+			89931,
+			90185,
+			90496,
+			92041,
+			92855,
+			93085,
+			93506,
+			93683,
+			93864,
+			94820,
+			95168,
+			95294,
+			95347,
+			98032,
+			98412,
+			98688
+		]
+	},
+	{
+		id: "Tau",
+		name: "Byk",
+		hips: [
+			15900,
+			17847,
+			18724,
+			20205,
+			20455,
+			20648,
+			20889,
+			20894,
+			21421,
+			21881,
+			25428,
+			26451
+		]
+	},
+	{
+		id: "Tel",
+		name: "Luneta",
+		hips: [
+			90422,
+			90568
+		]
+	},
+	{
+		id: "TrA",
+		name: "Trójkąt Południowy",
+		hips: [
+			74946,
+			77952,
+			82273
+		]
+	},
+	{
+		id: "Tri",
+		name: "Trójkąt",
+		hips: [
+			8796,
+			10064,
+			10670
+		]
+	},
+	{
+		id: "Tuc",
+		name: "Tukan",
+		hips: [
+			1599,
+			2484,
+			110130,
+			114996
+		]
+	},
+	{
+		id: "UMa",
+		name: "Wielka Niedźwiedzica",
+		hips: [
+			41704,
+			44127,
+			44471,
+			46733,
+			46853,
+			48319,
+			48402,
+			50372,
+			50801,
+			53910,
+			54061,
+			54539,
+			57399,
+			58001,
+			59774,
+			62956,
+			65378,
+			67301
+		]
+	},
+	{
+		id: "UMi",
+		name: "Mała Niedźwiedzica",
+		hips: [
+			11767,
+			72607,
+			75097,
+			77055,
+			79822,
+			82080,
+			85822
+		]
+	},
+	{
+		id: "Vel",
+		name: "Żagiel",
+		hips: [
+			39953,
+			42536,
+			42913,
+			44816,
+			45941,
+			46651,
+			48774,
+			50191,
+			51986,
+			52727
+		]
+	},
+	{
+		id: "Vir",
+		name: "Panna",
+		hips: [
+			57380,
+			60129,
+			61941,
+			63090,
+			63608,
+			65474,
+			66249,
+			68520,
+			69427,
+			69701,
+			71957,
+			72220
+		]
+	},
+	{
+		id: "Vol",
+		name: "Ryba Latająca",
+		hips: [
+			34481,
+			35228,
+			37504,
+			39794,
+			41312,
+			44382
+		]
+	},
+	{
+		id: "Vul",
+		name: "Lisek",
+		hips: [
+			95771,
+			98543
+		]
+	}
+];
 var stars$1 = {
 	stars: stars,
-	lines: lines
+	lines: lines,
+	constellations: constellations
 };
 
-const rad = (d) => (d * Math.PI) / 180;
+/** Image polygon (normalised x,y) -> az/alt polygon; every edge is split into `subdivide` pieces. */
+function polygonToSky(g, pts, subdivide = 8) {
+    const out = [];
+    for (let i = 0; i < pts.length; i++) {
+        const [x1, y1] = pts[i];
+        const [x2, y2] = pts[(i + 1) % pts.length];
+        for (let k = 0; k < subdivide; k++) {
+            const t = k / subdivide;
+            out.push(unproject(g, x1 + (x2 - x1) * t, y1 + (y2 - y1) * t));
+        }
+    }
+    return out;
+}
+/** az/alt polygon -> image polygon (vertices behind the camera are dropped). */
+function skyToPolygon(g, poly) {
+    const out = [];
+    for (const [az, alt] of poly) {
+        const p = project(g, az, alt);
+        if (p)
+            out.push(p);
+    }
+    return out;
+}
+
+const rad$1 = (d) => (d * Math.PI) / 180;
 const deg = (r) => (r * 180) / Math.PI;
 const mod = (x, m) => ((x % m) + m) % m;
 const julianDate = (date) => date.getTime() / 86400000 + 2440587.5;
@@ -19959,20 +21412,20 @@ function localSiderealTime(date, lonDeg) {
 /** Precess J2000 equatorial coordinates (degrees) to the equinox of `date`. */
 function precess(raDeg, decDeg, date) {
     const T = (julianDate(date) - 2451545.0) / 36525;
-    const zeta = rad((2306.2181 * T + 0.30188 * T * T + 0.017998 * T ** 3) / 3600);
-    const z = rad((2306.2181 * T + 1.09468 * T * T + 0.018203 * T ** 3) / 3600);
-    const theta = rad((2004.3109 * T - 0.42665 * T * T - 0.041833 * T ** 3) / 3600);
-    const a = rad(raDeg);
-    const d = rad(decDeg);
+    const zeta = rad$1((2306.2181 * T + 0.30188 * T * T + 0.017998 * T ** 3) / 3600);
+    const z = rad$1((2306.2181 * T + 1.09468 * T * T + 0.018203 * T ** 3) / 3600);
+    const theta = rad$1((2004.3109 * T - 0.42665 * T * T - 0.041833 * T ** 3) / 3600);
+    const a = rad$1(raDeg);
+    const d = rad$1(decDeg);
     const A = Math.cos(d) * Math.sin(a + zeta);
     const B = Math.cos(theta) * Math.cos(d) * Math.cos(a + zeta) - Math.sin(theta) * Math.sin(d);
     const C = Math.sin(theta) * Math.cos(d) * Math.cos(a + zeta) + Math.cos(theta) * Math.sin(d);
     return [mod(deg(Math.atan2(A, B)) + deg(z), 360), deg(Math.asin(C))];
 }
 function raDecToAltAz(raDeg, decDeg, latDeg, lstDeg) {
-    const H = rad(lstDeg - raDeg);
-    const d = rad(decDeg);
-    const p = rad(latDeg);
+    const H = rad$1(lstDeg - raDeg);
+    const d = rad$1(decDeg);
+    const p = rad$1(latDeg);
     const sinAlt = Math.sin(d) * Math.sin(p) + Math.cos(d) * Math.cos(p) * Math.cos(H);
     const alt = deg(Math.asin(sinAlt));
     const az = mod(deg(Math.atan2(-Math.cos(d) * Math.sin(H), Math.sin(d) * Math.cos(p) - Math.cos(d) * Math.sin(p) * Math.cos(H))), 360);
@@ -19980,66 +21433,15 @@ function raDecToAltAz(raDeg, decDeg, latDeg, lstDeg) {
 }
 
 const data = stars$1;
-function starRadius(mag) {
-    return Math.max(0.6, 3.2 - 0.5 * mag);
-}
-function buildScene(cfg, bodies, date, w, h, sunAlt) {
-    const { lat, lon } = cfg.observer;
-    const lst = localSiderealTime(date, lon);
-    const px = (p) => (p ? [p[0] * w, p[1] * h] : null);
-    const place = (ra, dec) => {
-        const [r2, d2] = precess(ra, dec, date);
-        const { alt, az } = raDecToAltAz(r2, d2, lat, lst);
-        return { alt, az, p: px(project(cfg.geometry, az, alt)) };
-    };
-    const cache = new Map();
-    const sc = { stars: [], lines: [], bodies: [], horizon: "" };
-    const daylight = sunAlt !== undefined && sunAlt > cfg.twilight;
-    for (const s of daylight ? [] : data.stars) {
-        const q = place(s[0], s[1]);
-        cache.set(s[3], q);
-        if (q.alt > 0 && q.p)
-            sc.stars.push({ x: q.p[0], y: q.p[1], r: starRadius(s[2]) });
-    }
-    for (const [a, b] of daylight ? [] : data.lines) {
-        const qa = cache.get(a);
-        const qb = cache.get(b);
-        if (qa && qb && qa.alt > 0 && qb.alt > 0 && qa.p && qb.p) {
-            sc.lines.push({ x1: qa.p[0], y1: qa.p[1], x2: qb.p[0], y2: qb.p[1] });
-        }
-    }
-    for (const o of cfg.objects) {
-        if (daylight && (o.kind === "planet" || o.kind === "star"))
-            continue;
-        const alt_az = bodies[o.id];
-        if (o.kind === "star") {
-            const st = starCatalogEntry(o.id);
-            if (!st)
-                continue;
-            const q = place(st[0], st[1]);
-            if (q.alt > 0 && q.p)
-                sc.bodies.push({ ...o, x: q.p[0], y: q.p[1], alt: q.alt, az: q.az });
-        }
-        else if (alt_az && alt_az[0] > 0) {
-            const p = px(project(cfg.geometry, alt_az[1], alt_az[0]));
-            if (p)
-                sc.bodies.push({ ...o, x: p[0], y: p[1], alt: alt_az[0], az: alt_az[1] });
-        }
-    }
-    let path = "";
-    let pen = false;
-    for (let az = 0; az <= 360; az += 2) {
-        const p = px(project(cfg.geometry, az, 0));
-        if (p) {
-            path += `${pen ? "L" : "M"}${p[0].toFixed(1)},${p[1].toFixed(1)}`;
-            pen = true;
-        }
-        else
-            pen = false;
-    }
-    sc.horizon = path;
-    return sc;
-}
+const SOLAR = {
+    sun: { name: "Słońce", kind: "sun" },
+    moon: { name: "Księżyc", kind: "moon" },
+    mercury: { name: "Merkury", kind: "planet" },
+    venus: { name: "Wenus", kind: "planet" },
+    mars: { name: "Mars", kind: "planet" },
+    jupiter: { name: "Jowisz", kind: "planet" },
+    saturn: { name: "Saturn", kind: "planet" },
+};
 // J2000 coordinates of the named catalogue stars (mirror of objects.py).
 const NAMED = {
     sirius: [101.287, -16.716], arcturus: [213.915, 19.182], vega: [279.234, 38.784],
@@ -20052,8 +21454,101 @@ const NAMED = {
     mirfak: [51.081, 49.861], polaris: [37.955, 89.264], alphard: [141.897, -8.659],
     hamal: [31.793, 23.463],
 };
-function starCatalogEntry(id) {
-    return NAMED[id];
+const STAR_NAMES = {
+    sirius: "Syriusz", arcturus: "Arktur", vega: "Wega", capella: "Kapella", rigel: "Rigel",
+    procyon: "Procjon", betelgeuse: "Betelgeza", altair: "Altair", aldebaran: "Aldebaran", spica: "Spika",
+    antares: "Antares", pollux: "Polluks", fomalhaut: "Fomalhaut", deneb: "Deneb", regulus: "Regulus",
+    castor: "Kastor", bellatrix: "Bellatrix", elnath: "Elnath", alnilam: "Alnilam", alioth: "Alioth",
+    dubhe: "Dubhe", mirfak: "Mirfak", polaris: "Polaris", alphard: "Alphard", hamal: "Hamal",
+};
+/** Polish name of a named catalogue star (mirror of objects.py). */
+function starName(id) {
+    return STAR_NAMES[id] ?? id;
+}
+function starRadius(mag) {
+    return Math.max(0.6, 3.2 - 0.5 * mag);
+}
+const inside = (p, m = 0.05) => !!p && p[0] >= -m && p[0] <= 1 + m && p[1] >= -m && p[1] <= 1 + m;
+function buildScene(cfg, bodies, date, view, w, h, sunAlt) {
+    const vg = viewGeometry(view, w / h);
+    const vis = sunAlt === undefined ? 1 : skyVisibility(sunAlt);
+    const { lat, lon } = cfg.observer;
+    const lst = localSiderealTime(date, lon);
+    const px = (p) => [p[0] * w, p[1] * h];
+    const sc = { stars: [], lines: [], labels: [], bodies: [], ground: [], horizon: [], obstructions: [] };
+    const placed = new Map();
+    for (const s of data.stars) {
+        const [ra, dec] = precess(s[0], s[1], date);
+        const { alt, az } = raDecToAltAz(ra, dec, lat, lst);
+        const p = alt > 0 ? project(vg, az, alt) : null;
+        placed.set(s[3], p);
+        if (p && inside(p))
+            sc.stars.push({ x: p[0] * w, y: p[1] * h, r: starRadius(s[2]), a: vis });
+    }
+    for (const [a, b] of data.lines) {
+        const qa = placed.get(a);
+        const qb = placed.get(b);
+        if (qa && qb && (inside(qa, 0.3) || inside(qb, 0.3))) {
+            sc.lines.push({ x1: qa[0] * w, y1: qa[1] * h, x2: qb[0] * w, y2: qb[1] * h, a: vis });
+        }
+    }
+    for (const c of data.constellations) {
+        const pts = c.hips
+            .map((hp) => placed.get(hp) ?? null)
+            .filter((p) => inside(p, 0));
+        if (pts.length < 2)
+            continue;
+        const x = pts.reduce((s, p) => s + p[0], 0) / pts.length;
+        const y = pts.reduce((s, p) => s + p[1], 0) / pts.length;
+        sc.labels.push({ x: x * w, y: y * h, text: c.name, a: vis });
+    }
+    const infos = new Map();
+    for (const [id, s] of Object.entries(SOLAR))
+        if (bodies[id])
+            infos.set(id, { id, ...s, entity_id: null });
+    for (const o of cfg.objects)
+        infos.set(o.id, { ...infos.get(o.id), ...o });
+    for (const o of infos.values()) {
+        let alt;
+        let az;
+        if (o.kind === "star") {
+            const st = NAMED[o.id];
+            if (!st)
+                continue;
+            const [ra, dec] = precess(st[0], st[1], date);
+            ({ alt, az } = raDecToAltAz(ra, dec, lat, lst));
+        }
+        else {
+            const aa = bodies[o.id];
+            if (!aa)
+                continue;
+            [alt, az] = aa;
+        }
+        if (alt <= 0)
+            continue;
+        const p = project(vg, az, alt);
+        if (!p || !inside(p, 0.1))
+            continue;
+        const a = o.kind === "sun" || o.kind === "moon" ? 1 : vis;
+        sc.bodies.push({ ...o, x: p[0] * w, y: p[1] * h, alt, az, a });
+    }
+    for (let d = -90; d <= 90; d += 2) {
+        const p = project(vg, view.az + d, 0);
+        if (p && p[0] > -0.5 && p[0] < 1.5)
+            sc.horizon.push(px(p));
+    }
+    if (sc.horizon.length >= 2) {
+        const first = sc.horizon[0];
+        const last = sc.horizon[sc.horizon.length - 1];
+        sc.ground = [...sc.horizon, [last[0], h * 3], [first[0], h * 3]];
+    }
+    else if (view.alt < 0) {
+        sc.ground = [[0, 0], [w, 0], [w, h], [0, h]];
+    }
+    sc.obstructions = cfg.obstructions
+        .map((poly) => skyToPolygon(vg, poly).map(px))
+        .filter((poly) => poly.length >= 3);
+    return sc;
 }
 
 const STEP_MIN = 10;
@@ -20074,52 +21569,879 @@ function bodiesAt(sky, index) {
     return out;
 }
 
-const W = 1000;
+/** DateTimeOriginal (and OffsetTimeOriginal) from a JPEG; null when absent or not a JPEG. */
+function readExifDate(buf) {
+    const v = new DataView(buf);
+    if (v.byteLength < 4 || v.getUint16(0) !== 0xffd8)
+        return null;
+    let p = 2;
+    while (p + 4 <= v.byteLength) {
+        if (v.getUint8(p) !== 0xff)
+            return null;
+        const marker = v.getUint8(p + 1);
+        if (marker === 0xd9 || marker === 0xda)
+            return null; // end of image / start of scan
+        const len = v.getUint16(p + 2);
+        if (marker === 0xe1 && p + 10 <= v.byteLength && v.getUint32(p + 4) === 0x45786966) {
+            return parseTiff(v, p + 10);
+        }
+        p += 2 + len;
+    }
+    return null;
+}
+function parseTiff(v, base) {
+    if (base + 8 > v.byteLength)
+        return null;
+    const le = v.getUint16(base) === 0x4949;
+    const u16 = (o) => v.getUint16(base + o, le);
+    const u32 = (o) => v.getUint32(base + o, le);
+    const ascii = (o, n) => {
+        let s = "";
+        for (let i = 0; i < n; i++) {
+            const c = v.getUint8(base + o + i);
+            if (c === 0)
+                break;
+            s += String.fromCharCode(c);
+        }
+        return s;
+    };
+    const entries = (ifd) => {
+        const out = new Map();
+        if (base + ifd + 2 > v.byteLength)
+            return out;
+        const n = u16(ifd);
+        for (let i = 0; i < n; i++) {
+            const e = ifd + 2 + 12 * i;
+            if (base + e + 12 > v.byteLength)
+                break;
+            out.set(u16(e), { type: u16(e + 2), count: u32(e + 4), value: u32(e + 8) });
+        }
+        return out;
+    };
+    try {
+        const ptr = entries(u32(4)).get(0x8769);
+        if (!ptr)
+            return null;
+        const exif = entries(ptr.value);
+        const dt = exif.get(0x9003);
+        if (!dt)
+            return null;
+        const off = exif.get(0x9011);
+        const str = (e) => (e.count <= 4 ? "" : ascii(e.value, e.count));
+        const local = str(dt);
+        if (!/^\d{4}:\d\d:\d\d \d\d:\d\d:\d\d$/.test(local))
+            return null;
+        const offset = off ? str(off) : "";
+        return { local, offset: /^[+-]\d\d:\d\d$/.test(offset) ? offset : null };
+    }
+    catch {
+        return null;
+    }
+}
+function parts(local) {
+    const [d, t] = local.split(" ");
+    const [Y, M, D] = d.split(":").map(Number);
+    const [h, m, s] = t.split(":").map(Number);
+    return [Y, M - 1, D, h, m, s];
+}
+/** Wall-clock time in `timeZone` for a UTC instant, expressed as a UTC timestamp. */
+function zoned(utcMs, timeZone) {
+    const f = new Intl.DateTimeFormat("en-US", {
+        timeZone, hourCycle: "h23", year: "numeric", month: "2-digit", day: "2-digit",
+        hour: "2-digit", minute: "2-digit", second: "2-digit",
+    });
+    const p = Object.fromEntries(f.formatToParts(new Date(utcMs)).map((x) => [x.type, x.value]));
+    return Date.UTC(+p.year, +p.month - 1, +p.day, +p.hour, +p.minute, +p.second);
+}
+/** Convert EXIF local time to UTC: explicit offset first, otherwise the HA time zone. */
+function exifToUtc(e, timeZone) {
+    const [Y, M, D, h, m, s] = parts(e.local);
+    const wall = Date.UTC(Y, M, D, h, m, s);
+    if (e.offset) {
+        const sign = e.offset[0] === "-" ? -1 : 1;
+        const [oh, om] = e.offset.slice(1).split(":").map(Number);
+        return new Date(wall - sign * (oh * 60 + om) * 60000);
+    }
+    let guess = wall;
+    for (let i = 0; i < 2; i++)
+        guess = wall - (zoned(guess, timeZone) - guess);
+    return new Date(guess);
+}
+
+const rad = (d) => (d * Math.PI) / 180;
+const wrap360 = (x) => ((x % 360) + 360) % 360;
+function angularDistance(a, b) {
+    const c = Math.sin(rad(a.alt)) * Math.sin(rad(b.alt)) +
+        Math.cos(rad(a.alt)) * Math.cos(rad(b.alt)) * Math.cos(rad(a.az - b.az));
+    return (Math.acos(Math.min(1, Math.max(-1, c))) * 180) / Math.PI;
+}
+function linSolve(A, b) {
+    const n = b.length;
+    const M = A.map((r, i) => [...r, b[i]]);
+    for (let c = 0; c < n; c++) {
+        let p = c;
+        for (let r = c + 1; r < n; r++)
+            if (Math.abs(M[r][c]) > Math.abs(M[p][c]))
+                p = r;
+        [M[c], M[p]] = [M[p], M[c]];
+        for (let r = 0; r < n; r++) {
+            if (r === c || M[c][c] === 0)
+                continue;
+            const f = M[r][c] / M[c][c];
+            for (let k = c; k <= n; k++)
+                M[r][k] -= f * M[c][k];
+        }
+    }
+    return M.map((r, i) => (r[i] === 0 ? 0 : r[n] / r[i]));
+}
+/**
+ * Fit the window geometry to clicked matches.
+ * 1 match: az_center, alt_center. 2+ matches: also hfov and roll.
+ */
+function solveGeometry(start, matches) {
+    if (matches.length === 0)
+        return { fail: "Wskaż przynajmniej jeden obiekt na zdjęciu." };
+    for (let i = 0; i < matches.length; i++) {
+        for (let j = i + 1; j < matches.length; j++) {
+            const a = matches[i];
+            const b = matches[j];
+            if (angularDistance(a, b) < 3 || Math.hypot(a.x - b.x, a.y - b.y) < 0.05) {
+                return { fail: "Wybrane obiekty są za blisko siebie – wybierz dwa oddalone od siebie." };
+            }
+        }
+    }
+    const full = matches.length >= 2;
+    const toGeo = (p) => ({
+        ...start,
+        az_center: wrap360(p[0]),
+        alt_center: Math.max(-10, Math.min(90, p[1])),
+        hfov: full ? Math.max(10, Math.min(120, p[2])) : start.hfov,
+        roll: full ? p[3] : start.roll,
+    });
+    const residuals = (p) => {
+        const g = toGeo(p);
+        const r = [];
+        for (const m of matches) {
+            const q = project(g, m.az, m.alt);
+            if (!q)
+                r.push(10, 10);
+            else
+                r.push(q[0] - m.x, q[1] - m.y);
+        }
+        return r;
+    };
+    const cost = (r) => r.reduce((s, x) => s + x * x, 0);
+    // seed the direction from the first match so the fit can reach any azimuth
+    const m0 = matches[0];
+    const [seedAz, seedAlt] = unproject({ ...start, az_center: m0.az, alt_center: m0.alt }, 1 - m0.x, 1 - m0.y);
+    const seed = { az: seedAz, alt: Math.max(-10, Math.min(89, seedAlt)) };
+    let p = full ? [seed.az, seed.alt, start.hfov, start.roll] : [seed.az, seed.alt];
+    let r = residuals(p);
+    let lambda = 1e-3;
+    for (let it = 0; it < 50; it++) {
+        const h = 1e-4;
+        const J = r.map(() => new Array(p.length).fill(0));
+        for (let k = 0; k < p.length; k++) {
+            const q = [...p];
+            q[k] += h;
+            const rk = residuals(q);
+            for (let i = 0; i < r.length; i++)
+                J[i][k] = (rk[i] - r[i]) / h;
+        }
+        const JtJ = p.map((_, a) => p.map((__, b) => J.reduce((s, row) => s + row[a] * row[b], 0)));
+        const Jtr = p.map((_, a) => J.reduce((s, row, i) => s + row[a] * r[i], 0));
+        for (let a = 0; a < p.length; a++)
+            JtJ[a][a] *= 1 + lambda;
+        const step = linSolve(JtJ, Jtr.map((x) => -x));
+        const cand = p.map((x, i) => x + step[i]);
+        const rc = residuals(cand);
+        if (cost(rc) < cost(r)) {
+            p = cand;
+            r = rc;
+            lambda = Math.max(1e-7, lambda / 3);
+            if (Math.max(...step.map(Math.abs)) < 1e-7)
+                break;
+        }
+        else {
+            lambda *= 5;
+        }
+    }
+    const error = Math.sqrt(cost(r) / matches.length);
+    if (!Number.isFinite(error) || error > 0.01) {
+        return { fail: "Nie udało się dopasować zdjęcia – sprawdź, czy kliknięte obiekty są właściwe." };
+    }
+    const geometry = toGeo(p);
+    if (full && (Math.abs(geometry.roll) > 30 || geometry.hfov <= 15 || geometry.hfov >= 115)) {
+        return { fail: "Dopasowanie wygląda nieprawdopodobnie – sprawdź, czy kliknięte obiekty są właściwe." };
+    }
+    return { geometry, error };
+}
+
+function initWizard(data, existingPhotoUrl) {
+    return {
+        step: "photo",
+        photo: { blobUrl: existingPhotoUrl || undefined, needsTime: false, deleted: false },
+        geometry: { ...data.geometry },
+        matches: [],
+        polys: data.obstructions.map((p) => skyToPolygon(data.geometry, p)).filter((p) => p.length >= 3),
+        opacity: data.photo_opacity ?? 0.6,
+        error: "",
+    };
+}
+function setPhoto(s, p) {
+    const time = p.exif ? exifToUtc(p.exif, p.timeZone) : undefined;
+    return {
+        ...s,
+        photo: { blob: p.blob, blobUrl: p.blobUrl, aspect: p.aspect, time, needsTime: !time, deleted: false },
+        geometry: { ...s.geometry, aspect: p.aspect },
+        matches: [],
+        error: "",
+    };
+}
+function setPhotoTime(s, time) {
+    return { ...s, photo: { ...s.photo, time, needsTime: false } };
+}
+function skipPhoto(s) {
+    return { ...s, photo: { needsTime: false, deleted: s.photo.deleted || !!s.photo.blobUrl, blobUrl: undefined } };
+}
+const PHOTO_TYPES = ["image/jpeg", "image/png", "image/webp"];
+const PHOTO_MAX_BYTES = 15 * 1024 * 1024;
+/** Error message for a file the integration would reject, or null when it is fine. */
+function validatePhotoFile(f) {
+    if (!PHOTO_TYPES.includes(f.type))
+        return "Ten format nie jest obsługiwany (np. HEIC) – zapisz zdjęcie jako JPEG, PNG lub WebP.";
+    if (f.size > PHOTO_MAX_BYTES)
+        return "Zdjęcie jest za duże (maks. 15 MB).";
+    return null;
+}
+/** "YYYY-MM-DDTHH:MM" typed by the user, read in the HA time zone. */
+function parseLocalInput(v, timeZone) {
+    const [d, t] = v.split("T");
+    return exifToUtc({ local: `${d.replaceAll("-", ":")} ${t.slice(0, 5)}:00`, offset: null }, timeZone);
+}
+function formatLocalInput(d, timeZone) {
+    const f = new Intl.DateTimeFormat("en-CA", {
+        timeZone, hourCycle: "h23", year: "numeric", month: "2-digit", day: "2-digit", hour: "2-digit", minute: "2-digit",
+    });
+    const p = Object.fromEntries(f.formatToParts(d).map((x) => [x.type, x.value]));
+    return `${p.year}-${p.month}-${p.day}T${p.hour}:${p.minute}`;
+}
+const hasPhoto = (s) => !!s.photo.blobUrl && !s.photo.deleted;
+function canNext(s) {
+    if (s.step === "photo")
+        return !(hasPhoto(s) && s.photo.blob && s.photo.needsTime);
+    if (s.step === "stars")
+        return s.matches.length > 0 && !s.error;
+    return s.step !== "preview";
+}
+const ORDER = {
+    photo: (s) => (hasPhoto(s) ? "method" : "compass"),
+    method: (s) => (s.method === "stars" ? "stars" : "compass"),
+    stars: () => "obstructions",
+    compass: () => "obstructions",
+    obstructions: () => "preview",
+    preview: () => "preview",
+};
+function next(s) {
+    if (!canNext(s))
+        return s;
+    const step = ORDER[s.step](s);
+    return { ...s, step, method: step === "compass" ? "compass" : s.method, error: "" };
+}
+function back(s) {
+    const prev = {
+        photo: "photo",
+        method: "photo",
+        stars: "method",
+        compass: hasPhoto(s) ? "method" : "photo",
+        obstructions: s.method === "stars" ? "stars" : "compass",
+        preview: "obstructions",
+    };
+    return { ...s, step: prev[s.step], error: "" };
+}
+function chooseMethod(s, method) {
+    if (method === "stars" && !s.photo.time) {
+        return { ...s, error: "Do kalibracji po gwiazdach podaj godzinę zrobienia zdjęcia (krok Zdjęcie)." };
+    }
+    return next({ ...s, method });
+}
+/** Add a clicked object (max 2 – a third replaces the oldest) and re-solve. */
+function addMatch(s, m) {
+    const matches = [...s.matches, m].slice(-2);
+    const r = solveGeometry(s.geometry, matches);
+    if ("fail" in r)
+        return { ...s, error: r.fail };
+    return { ...s, matches, geometry: r.geometry, error: "" };
+}
+function clearMatches(s) {
+    return { ...s, matches: [], error: "" };
+}
+/** Frame altitude that puts the horizon at normalised height y (roll ignored). */
+function horizonToAlt(g, y) {
+    const th = Math.tan((g.hfov * Math.PI) / 360);
+    return (Math.atan(((y - 0.5) * 2 * th) / g.aspect) * 180) / Math.PI;
+}
+function altToHorizon(g) {
+    const th = Math.tan((g.hfov * Math.PI) / 360);
+    return 0.5 + (Math.tan((g.alt_center * Math.PI) / 180) * g.aspect) / (2 * th);
+}
+function savePayload(s) {
+    return {
+        geometry: s.geometry,
+        obstructions: s.polys.filter((p) => p.length >= 3).map((p) => polygonToSky(s.geometry, p, 1)),
+        photo_opacity: s.opacity,
+    };
+}
+
+const STEPS = [
+    ["photo", "Zdjęcie"],
+    ["method", "Metoda"],
+    ["stars", "Gwiazdy"],
+    ["compass", "Kompas"],
+    ["obstructions", "Przeszkody"],
+    ["preview", "Podgląd"],
+];
+class MapaNiebaWizard extends i {
+    constructor() {
+        super(...arguments);
+        this.photoUrl = "";
+        this._selected = null;
+        this._draft = null;
+        this._saving = false;
+        this._msg = "";
+        this._previewMin = 180;
+        this._dragHorizon = false;
+    }
+    connectedCallback() {
+        super.connectedCallback();
+        if (!this.state && this.data)
+            this.state = initWizard(this.data, this.photoUrl);
+    }
+    // ---------------------------------------------------------------- actions
+    get _tz() {
+        return this.hass?.config?.time_zone || "UTC";
+    }
+    _close() {
+        this.dispatchEvent(new CustomEvent("close"));
+    }
+    async _onFile(file) {
+        const bad = validatePhotoFile(file);
+        if (bad) {
+            this._msg = bad;
+            return;
+        }
+        this._msg = "";
+        const buf = await file.arrayBuffer();
+        const exif = readExifDate(buf);
+        const blobUrl = URL.createObjectURL(file);
+        const aspect = await new Promise((resolve) => {
+            const img = new Image();
+            img.onload = () => resolve(img.naturalWidth / img.naturalHeight || 4 / 3);
+            img.onerror = () => resolve(4 / 3);
+            img.src = blobUrl;
+        });
+        this.state = setPhoto(this.state, {
+            blob: file, blobUrl, aspect, exif, timeZone: this.hass?.config?.time_zone || "UTC",
+        });
+    }
+    async _goNext() {
+        this.state = next(this.state);
+        await this._enter();
+    }
+    async _choose(method) {
+        this.state = chooseMethod(this.state, method);
+        await this._enter();
+    }
+    async _enter() {
+        const s = this.state;
+        try {
+            if (s.step === "stars" && s.photo.time) {
+                const r = await this.hass.callWS({ type: "mapa_nieba/sky", times: [s.photo.time.toISOString()] });
+                this._at = { time: s.photo.time, bodies: bodiesAt(r, 0), sunAlt: r.sun_alt[0] };
+            }
+            if (s.step === "preview" && !this._preview) {
+                const base = new Date();
+                base.setHours(18, 0, 0, 0);
+                const times = Array.from({ length: 73 }, (_, i) => new Date(base.getTime() + i * 600000).toISOString());
+                this._preview = { base, sky: await this.hass.callWS({ type: "mapa_nieba/sky", times }) };
+            }
+        }
+        catch (e) {
+            this._msg = e?.message || "Nie udało się pobrać pozycji obiektów";
+        }
+    }
+    _candidates() {
+        if (!this._at)
+            return [];
+        const { lat, lon } = this.data.observer;
+        const lst = localSiderealTime(this._at.time, lon);
+        const out = [];
+        for (const [id, aa] of Object.entries(this._at.bodies)) {
+            if (aa && aa[0] > 0 && SOLAR[id])
+                out.push({ id, name: SOLAR[id].name, alt: aa[0], az: aa[1] });
+        }
+        for (const [id, [ra, dec]] of Object.entries(NAMED)) {
+            const [r2, d2] = precess(ra, dec, this._at.time);
+            const { alt, az } = raDecToAltAz(r2, d2, lat, lst);
+            if (alt > 0)
+                out.push({ id, name: starName(id), alt, az });
+        }
+        return out.sort((a, b) => b.alt - a.alt);
+    }
+    _framePoint(e) {
+        const r = e.currentTarget.getBoundingClientRect();
+        return [(e.clientX - r.left) / r.width, (e.clientY - r.top) / r.height];
+    }
+    _clickStars(e) {
+        const c = this._candidates().find((x) => x.id === this._selected);
+        if (!c) {
+            this._msg = "Najpierw wybierz obiekt z listy, potem kliknij go na zdjęciu.";
+            return;
+        }
+        const [x, y] = this._framePoint(e);
+        this.state = addMatch(this.state, { az: c.az, alt: c.alt, x, y });
+        this._selected = null;
+        this._msg = "";
+    }
+    _clickObstruction(e) {
+        if (!this._draft)
+            return;
+        this._draft = [...this._draft, this._framePoint(e)];
+    }
+    _closeDraft() {
+        if (this._draft && this._draft.length >= 3)
+            this.state = { ...this.state, polys: [...this.state.polys, this._draft] };
+        this._draft = null;
+    }
+    _setGeo(patch) {
+        this.state = { ...this.state, geometry: { ...this.state.geometry, ...patch } };
+    }
+    _dial(e) {
+        if (e.type === "pointermove" && !(e.buttons & 1))
+            return;
+        const r = e.currentTarget.getBoundingClientRect();
+        const dx = e.clientX - (r.left + r.width / 2);
+        const dy = e.clientY - (r.top + r.height / 2);
+        this._setGeo({ az_center: Math.round(((Math.atan2(dx, -dy) * 180) / Math.PI + 360) % 360) });
+    }
+    _horizon(e) {
+        if (e.type === "pointerdown") {
+            this._dragHorizon = true;
+            e.currentTarget.setPointerCapture?.(e.pointerId);
+        }
+        if (e.type === "pointerup")
+            this._dragHorizon = false;
+        if (!this._dragHorizon)
+            return;
+        const [, y] = this._framePoint(e);
+        this._setGeo({ alt_center: Math.max(-10, Math.min(60, horizonToAlt(this.state.geometry, y))) });
+    }
+    async _save() {
+        this._saving = true;
+        this._msg = "";
+        try {
+            const s = this.state;
+            if (s.photo.blob && !s.photo.deleted) {
+                const init = { method: "POST", body: s.photo.blob, headers: { "Content-Type": s.photo.blob.type || "image/jpeg" } };
+                const resp = this.hass.fetchWithAuth
+                    ? await this.hass.fetchWithAuth("/api/mapa_nieba/photo", init)
+                    : await fetch("/api/mapa_nieba/photo", {
+                        ...init,
+                        headers: { ...init.headers, Authorization: `Bearer ${this.hass.auth?.data?.access_token}` },
+                    });
+                if (!resp.ok)
+                    throw new Error((await resp.text?.()) || "Nie udało się wgrać zdjęcia");
+            }
+            await this.hass.callWS({
+                type: "mapa_nieba/save_geometry",
+                ...savePayload(s),
+                ...(s.photo.deleted ? { delete_photo: true } : {}),
+            });
+            this.dispatchEvent(new CustomEvent("saved"));
+        }
+        catch (e) {
+            this._msg = e?.message || "Zapis nie powiódł się";
+        }
+        finally {
+            this._saving = false;
+        }
+    }
+    // ---------------------------------------------------------------- drawing
+    updated() {
+        const c = this.renderRoot.querySelector("canvas.wz");
+        if (!c)
+            return;
+        const frame = c.parentElement;
+        const w = frame.clientWidth;
+        const h = frame.clientHeight;
+        if (!w || !h)
+            return;
+        const dpr = Math.min(2, window.devicePixelRatio || 1);
+        c.width = w * dpr;
+        c.height = h * dpr;
+        c.style.width = `${w}px`;
+        c.style.height = `${h}px`;
+        const ctx = c.getContext("2d");
+        if (!ctx)
+            return;
+        ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+        const g = this.state.geometry;
+        const view = { az: g.az_center, alt: g.alt_center, hfov: g.hfov, roll: g.roll };
+        const data = { ...this.data, obstructions: [] };
+        if (this.state.step === "stars" && this._at) {
+            const scene = buildScene(data, this._at.bodies, this._at.time, view, w, h, -30);
+            ctx.clearRect(0, 0, w, h);
+            for (const st of scene.stars) {
+                ctx.fillStyle = "rgba(120,200,255,0.75)";
+                ctx.beginPath();
+                ctx.arc(st.x, st.y, Math.max(1.2, st.r * 0.8), 0, Math.PI * 2);
+                ctx.fill();
+            }
+            ctx.font = "12px system-ui, sans-serif";
+            for (const cnd of this._candidates()) {
+                const p = project(g, cnd.az, cnd.alt);
+                if (!p)
+                    continue;
+                const sel = cnd.id === this._selected;
+                ctx.strokeStyle = sel ? "#ffd166" : "rgba(255,255,255,0.8)";
+                ctx.lineWidth = sel ? 2 : 1;
+                ctx.beginPath();
+                ctx.arc(p[0] * w, p[1] * h, 9, 0, Math.PI * 2);
+                ctx.stroke();
+                ctx.fillStyle = "#fff";
+                ctx.fillText(cnd.name, p[0] * w + 12, p[1] * h + 4);
+            }
+            for (const m of this.state.matches) {
+                ctx.strokeStyle = "#7CFC9A";
+                ctx.lineWidth = 2;
+                ctx.beginPath();
+                ctx.moveTo(m.x * w - 10, m.y * h);
+                ctx.lineTo(m.x * w + 10, m.y * h);
+                ctx.moveTo(m.x * w, m.y * h - 10);
+                ctx.lineTo(m.x * w, m.y * h + 10);
+                ctx.stroke();
+            }
+        }
+        else if (this.state.step === "preview" && this._preview) {
+            const idx = Math.round(this._previewMin / 10);
+            const sky = this._preview.sky;
+            const date = new Date(this._preview.base.getTime() + this._previewMin * 60000);
+            const sunAlt = sky.sun_alt[idx];
+            const scene = buildScene(data, bodiesAt(sky, idx), date, view, w, h, sunAlt);
+            drawSky(ctx, scene, skyColors(sunAlt), w, h);
+            const over = this.renderRoot.querySelector("canvas.wz-over");
+            const octx = over?.getContext("2d");
+            if (over && octx) {
+                over.width = w * dpr;
+                over.height = h * dpr;
+                over.style.width = `${w}px`;
+                over.style.height = `${h}px`;
+                octx.setTransform(dpr, 0, 0, dpr, 0, 0);
+                drawOverlay(octx, scene, new Set(), null, null, w, h);
+            }
+        }
+    }
+    render() {
+        const s = this.state;
+        if (!s)
+            return A;
+        const shown = STEPS.filter(([id]) => !(id === "method" && !hasPhoto(s)) && !(id === "stars" && s.method === "compass") && !(id === "compass" && s.method === "stars"));
+        return b `<div class="backdrop" @click=${(e) => e.target === e.currentTarget && this._close()}>
+      <div class="panel">
+        <header>
+          <h2>Kreator widoku</h2>
+          ${shown.map(([id, label]) => b `<span class="chip ${id === s.step ? "on" : ""}">${label}</span>`)}
+          <button class="x" title="Zamknij" @click=${() => this._close()}>×</button>
+        </header>
+        ${this._step()}
+        ${s.error || this._msg ? b `<div class="msg">${s.error || this._msg}</div>` : A}
+        <footer>
+          <button ?disabled=${s.step === "photo"} @click=${() => { this.state = back(s); this._draft = null; }}>← Wstecz</button>
+          ${s.step === "preview"
+            ? b `<button class="primary" ?disabled=${this._saving} @click=${() => this._save()}>${this._saving ? "Zapisuję…" : "Zapisz"}</button>`
+            : s.step === "method"
+                ? A
+                : b `<button class="primary" ?disabled=${!canNext(s)} @click=${() => this._goNext()}>Dalej →</button>`}
+        </footer>
+      </div>
+    </div>`;
+    }
+    _frame(content, onClick, extra = "") {
+        const s = this.state;
+        const src = hasPhoto(s) ? s.photo.blobUrl : "";
+        return b `<div class="frame" style="aspect-ratio:${s.geometry.aspect};width:min(100%, calc(60vh * ${s.geometry.aspect}));${extra}" @click=${onClick ?? (() => undefined)}>
+      ${src ? b `<img src=${src} alt="" style="opacity:${s.step === "preview" ? s.opacity : 1}"/>` : A}
+      ${content}
+    </div>`;
+    }
+    _step() {
+        const s = this.state;
+        switch (s.step) {
+            case "photo": return this._stepPhoto();
+            case "method": return b `<p class="hint">Jak dopasować kierunek zdjęcia do nieba?</p>
+        <div class="methods">
+          <button @click=${() => this._choose("stars")}><b>⭐ Po gwiazdach</b>Zdjęcie nocne z jasną planetą lub gwiazdą. Klikasz 1–2 obiekty – najdokładniej.</button>
+          <button @click=${() => this._choose("compass")}><b>🧭 Po kompasie</b>Zdjęcie dzienne. Ustawiasz kierunek, horyzont i kąt widzenia.</button>
+        </div>`;
+            case "stars": return this._stepStars();
+            case "compass": return this._stepCompass();
+            case "obstructions": return this._stepObstructions();
+            case "preview": return this._stepPreview();
+        }
+    }
+    _stepPhoto() {
+        const s = this.state;
+        return b `
+      <p class="hint">Zdjęcie jest opcjonalne. Najlepiej nocne, zrobione z miejsca, z którego patrzysz.</p>
+      ${hasPhoto(s)
+            ? b `${this._frame(A, undefined, "cursor:default")}`
+            : b `<label class="drop" @dragover=${(e) => e.preventDefault()}
+                 @drop=${(e) => { e.preventDefault(); const f = e.dataTransfer?.files[0]; if (f)
+                void this._onFile(f); }}>
+                 Przeciągnij zdjęcie tutaj albo kliknij, aby wybrać<br/>
+                 <input type="file" accept="image/*" style="margin-top:10px"
+                   @change=${(e) => { const f = e.target.files?.[0]; if (f)
+                void this._onFile(f); }}/>
+               </label>`}
+      ${hasPhoto(s)
+            ? b `<label>Kiedy zrobiono zdjęcie ${s.photo.time ? (s.photo.blob && !s.photo.needsTime ? "(odczytane z pliku)" : "") : b `<b>(potrzebne do kalibracji po gwiazdach – podaj)</b>`}</label>
+               <input type="datetime-local" .value=${s.photo.time ? formatLocalInput(s.photo.time, this._tz) : ""}
+                 @change=${(e) => { const v = e.target.value; if (v)
+                this.state = setPhotoTime(this.state, parseLocalInput(v, this._tz)); }}/>`
+            : A}
+      ${hasPhoto(s)
+            ? b `<label>Przezroczystość zdjęcia na mapie: ${Math.round(s.opacity * 100)}%</label>
+               <input type="range" min="0.1" max="1" step="0.05" .value=${String(s.opacity)}
+                 @input=${(e) => (this.state = { ...this.state, opacity: Number(e.target.value) })}/>
+               <div style="margin-top:8px;display:flex;gap:8px">
+                 <label class="chip" style="cursor:pointer">Zmień zdjęcie
+                   <input type="file" accept="image/*" hidden @change=${(e) => { const f = e.target.files?.[0]; if (f)
+                void this._onFile(f); }}/></label>
+                 <button @click=${() => (this.state = skipPhoto(this.state))}>Usuń zdjęcie</button>
+               </div>`
+            : b `<div style="margin-top:10px"><button @click=${() => { this.state = skipPhoto(this.state); void this._goNext(); }}>Bez zdjęcia →</button></div>`}`;
+    }
+    _stepStars() {
+        const s = this.state;
+        const cands = this._candidates();
+        return b `
+      <p class="hint">Wybierz obiekt z listy i kliknij, gdzie jest na zdjęciu. Drugi obiekt ustawi też zoom i przekrzywienie.
+        Niebieskie kropki to gwiazdy z obliczeń – po dopasowaniu powinny leżeć na prawdziwych.</p>
+      <div class="cands">${cands.length
+            ? cands.slice(0, 16).map((c) => b `<button class=${c.id === this._selected ? "sel" : ""} @click=${() => (this._selected = c.id)}>${c.name}</button>`)
+            : b `<span class="hint">Ładowanie pozycji obiektów…</span>`}
+        ${s.matches.length ? b `<button @click=${() => (this.state = clearMatches(this.state))}>Wyczyść punkty</button>` : A}
+      </div>
+      ${this._frame(b `<canvas class="wz"></canvas>`, (e) => this._clickStars(e))}
+      <p class="hint">Dopasowane punkty: ${s.matches.length}/2 · kierunek ${s.geometry.az_center.toFixed(1)}°, wysokość ${s.geometry.alt_center.toFixed(1)}°, kąt ${s.geometry.hfov.toFixed(1)}°</p>`;
+    }
+    _stepCompass() {
+        const g = this.state.geometry;
+        const rad = (d) => (d * Math.PI) / 180;
+        const pt = (az, r) => [85 + r * Math.sin(rad(az)), 85 - r * Math.cos(rad(az))];
+        const [nx, ny] = pt(g.az_center, 62);
+        const marks = [
+            ["Wschód Słońca", this.rises?.sun?.az, "#ffd166"],
+            ["Wschód Księżyca", this.rises?.moon?.az, "#cfd8ff"],
+        ].filter(([, az]) => az !== undefined && az !== null);
+        const hy = altToHorizon(g) * 100;
+        return b `<div class="row">
+      <div>
+        <svg class="dial" viewBox="0 0 170 170" @pointerdown=${this._dial} @pointermove=${this._dial}>
+          <circle cx="85" cy="85" r="80" fill="#121a38" stroke="rgba(255,255,255,.25)"/>
+          ${["N", "E", "S", "W"].map((t, i) => { const [x, y] = pt(i * 90, 68); return w `<text x=${x} y=${y + 4} fill="#aab3d9" font-size="12" text-anchor="middle">${t}</text>`; })}
+          ${marks.map(([, az, col]) => { const [x, y] = pt(az, 78); return w `<circle cx=${x} cy=${y} r="4" fill=${col}/>`; })}
+          <line x1="85" y1="85" x2=${nx} y2=${ny} stroke="#ffb347" stroke-width="4" stroke-linecap="round"/>
+          <circle cx="85" cy="85" r="5" fill="#ffb347"/>
+        </svg>
+        <label>Azymut środka kadru (°)</label>
+        <input type="number" min="0" max="359" .value=${String(Math.round(g.az_center))}
+          @change=${(e) => this._setGeo({ az_center: ((Number(e.target.value) % 360) + 360) % 360 })}/>
+        ${marks.map(([n, az, col]) => b `<div class="hint"><span style="color:${col}">●</span> ${n}: ${Math.round(az)}°</div>`)}
+      </div>
+      <div class="grow">
+        <p class="hint">Przeciągnij zieloną linię na horyzont widoczny na zdjęciu.</p>
+        ${this._frame(w `<svg viewBox="0 0 100 100" preserveAspectRatio="none" style="cursor:ns-resize"
+            @pointerdown=${this._horizon} @pointermove=${this._horizon} @pointerup=${this._horizon}>
+            <line x1="0" x2="100" y1=${hy} y2=${hy} stroke="#3ddc97" stroke-width="0.8" stroke-dasharray="2 1.5" vector-effect="non-scaling-stroke"/>
+          </svg>`)}
+        <label>Kąt widzenia (°)</label>
+        <div style="display:flex;gap:6px;align-items:center;flex-wrap:wrap">
+          <button @click=${() => this._setGeo({ hfov: 67 })}>Telefon · zwykły</button>
+          <button @click=${() => this._setGeo({ hfov: 105 })}>Szeroki kąt</button>
+          <input type="number" min="10" max="120" .value=${String(Math.round(g.hfov))}
+            @change=${(e) => this._setGeo({ hfov: Math.max(10, Math.min(120, Number(e.target.value))) })}/>
+        </div>
+        <label>Przekrzywienie: ${g.roll.toFixed(1)}°</label>
+        <input type="range" min="-30" max="30" step="0.5" .value=${String(g.roll)}
+          @input=${(e) => this._setGeo({ roll: Number(e.target.value) })}/>
+      </div>
+    </div>`;
+    }
+    _stepObstructions() {
+        const s = this.state;
+        const pts = (p) => p.map(([x, y]) => `${x * 100},${y * 100}`).join(" ");
+        return b `
+      <p class="hint">Zaznacz to, co zasłania niebo (słupek, budynek, drzewo): klikaj narożniki, potem „Zamknij kształt”. Krok można pominąć.</p>
+      ${this._frame(w `<svg viewBox="0 0 100 100" preserveAspectRatio="none">
+          ${s.polys.map((p) => w `<polygon points=${pts(p)} fill="rgba(0,0,0,.5)" stroke="#ff7b7b" stroke-width="0.4" vector-effect="non-scaling-stroke"/>`)}
+          ${this._draft ? w `<polyline points=${pts(this._draft)} fill="none" stroke="#ffd166" stroke-width="0.6" vector-effect="non-scaling-stroke"/>` : A}
+        </svg>`, (e) => this._clickObstruction(e))}
+      <div class="polys">
+        ${this._draft
+            ? b `<button class="primary" @click=${() => this._closeDraft()}>Zamknij kształt</button>
+                 <button @click=${() => (this._draft = null)}>Anuluj</button>`
+            : b `<button @click=${() => (this._draft = [])}>+ Dodaj przeszkodę</button>`}
+        ${s.polys.map((_, i) => b `<button @click=${() => (this.state = { ...s, polys: s.polys.filter((__, j) => j !== i) })}>Przeszkoda ${i + 1} ×</button>`)}
+      </div>`;
+    }
+    _stepPreview() {
+        const t = this._preview ? new Date(this._preview.base.getTime() + this._previewMin * 60000) : null;
+        return b `
+      <p class="hint">Tak będzie wyglądać dzisiejsza noc w Twoim kadrze. Przesuń suwak, żeby zobaczyć ruch nieba.</p>
+      <div class="frame" style="aspect-ratio:${this.state.geometry.aspect};width:min(100%, calc(60vh * ${this.state.geometry.aspect}));cursor:default">
+        <canvas class="wz"></canvas>
+        ${hasPhoto(this.state) ? b `<img src=${this.state.photo.blobUrl} alt="" style="opacity:${this.state.opacity}"/>` : A}
+        <canvas class="wz-over"></canvas>
+      </div>
+      <input type="range" min="0" max="720" step="10" .value=${String(this._previewMin)}
+        @input=${(e) => (this._previewMin = Number(e.target.value))}/>
+      <div class="hint">${t ? t.toLocaleString("pl-PL", { weekday: "short", hour: "2-digit", minute: "2-digit" }) : "Ładowanie…"}</div>`;
+    }
+}
+MapaNiebaWizard.properties = {
+    hass: { attribute: false },
+    data: { attribute: false },
+    photoUrl: { attribute: false },
+    rises: { attribute: false },
+    state: { state: true },
+    _at: { state: true },
+    _selected: { state: true },
+    _draft: { state: true },
+    _saving: { state: true },
+    _msg: { state: true },
+    _previewMin: { state: true },
+    _preview: { state: true },
+};
+// ---------------------------------------------------------------- render
+MapaNiebaWizard.styles = i$3 `
+    .backdrop { position: fixed; inset: 0; background: rgba(0, 0, 0, 0.6); z-index: 999; display: flex;
+                align-items: center; justify-content: center; padding: 12px; box-sizing: border-box; }
+    .panel { background: #0d1226; color: #e8ecff; border-radius: 16px; width: min(920px, 100%); max-height: 100%;
+             overflow: auto; padding: 16px; box-shadow: 0 10px 40px rgba(0, 0, 0, 0.5); font: 14px system-ui, sans-serif; }
+    header { display: flex; align-items: center; gap: 8px; margin-bottom: 12px; flex-wrap: wrap; }
+    header h2 { margin: 0 auto 0 0; font-size: 18px; font-weight: 600; }
+    .chip { padding: 3px 10px; border-radius: 999px; background: rgba(255, 255, 255, 0.08); font-size: 12px; }
+    .chip.on { background: #4f7cff; color: #fff; }
+    button { background: rgba(255, 255, 255, 0.1); color: #fff; border: 0; border-radius: 8px; padding: 7px 14px;
+             cursor: pointer; font: inherit; }
+    button.primary { background: #4f7cff; }
+    button:disabled { opacity: 0.4; cursor: default; }
+    .x { background: transparent; font-size: 20px; padding: 0 6px; }
+    footer { display: flex; justify-content: space-between; gap: 8px; margin-top: 14px; align-items: center; }
+    .msg { color: #ffb4a8; font-size: 13px; }
+    .hint { color: #aab3d9; font-size: 13px; margin: 6px 0; }
+    .frame { position: relative; margin: 0 auto; border-radius: 10px; overflow: hidden;
+             background: linear-gradient(#0b1430, #1b2550 70%, #121318 70%); cursor: crosshair; }
+    .frame img { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: fill; }
+    .frame canvas, .frame svg { position: absolute; inset: 0; width: 100%; height: 100%; }
+    .drop { border: 2px dashed rgba(255, 255, 255, 0.25); border-radius: 12px; padding: 28px; text-align: center; }
+    .row { display: flex; gap: 16px; flex-wrap: wrap; align-items: flex-start; }
+    .grow { flex: 1; min-width: 260px; }
+    .cands { display: flex; flex-wrap: wrap; gap: 6px; margin: 8px 0; }
+    .cands button { padding: 4px 10px; font-size: 12px; border-radius: 999px; }
+    .cands button.sel { background: #ffd166; color: #222; }
+    .methods { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
+    .methods button { text-align: left; padding: 16px; border-radius: 12px; }
+    .methods b { display: block; font-size: 15px; margin-bottom: 4px; }
+    .dial { width: 170px; height: 170px; touch-action: none; cursor: pointer; }
+    label { display: block; margin: 8px 0 4px; font-size: 13px; color: #c8d0f5; }
+    input[type="range"] { width: 100%; accent-color: #8fb3ff; }
+    input[type="number"], input[type="datetime-local"] { background: #1a2140; color: #fff; border: 1px solid #333c66;
+             border-radius: 6px; padding: 5px 8px; font: inherit; }
+    .polys { display: flex; gap: 6px; flex-wrap: wrap; margin-top: 8px; }
+  `;
+if (!customElements.get("mapa-nieba-wizard"))
+    customElements.define("mapa-nieba-wizard", MapaNiebaWizard);
+
+const RANGE_MIN = HALF_RANGE * STEP_MIN; // 720
+const PLAY_MS = 20000; // whole range in ~20 s
+const DIRS = ["N", "NNE", "NE", "ENE", "E", "ESE", "SE", "SSE", "S", "SSW", "SW", "WSW", "W", "WNW", "NW", "NNW"];
+function compassLabel(az) {
+    return `${DIRS[Math.round(az / 22.5) % 16]} · ${Math.round(az)}°`;
+}
 class MapaNiebaCard extends i {
     constructor() {
         super(...arguments);
+        this._config = {};
         this._skyBase = new Date();
-        this._offset = 0; // minutes from now
-        this._polys = []; // draft obstruction polygons in image coordinates
-        this._draw = null;
-        this._calibrating = false;
+        this._offset = 0;
+        this._view = { az: 135, alt: 15, hfov: 67 };
+        this._playing = false;
         this._hover = null;
         this._error = "";
-        this._saveError = "";
-        this._imgAspect = 0;
+        this._photoSrc = "";
+        this._wizardOpen = false;
+        this._size = { w: 0, h: 0 };
         this._loading = false;
+        this._raf = 0;
+        this._lastTick = 0;
+        this._pointers = new Map();
+        this._moved = false;
+        this._pinch = 0;
+    }
+    static getStubConfig() {
+        return {};
     }
     setConfig(config) {
         if (!config)
             throw new Error("mapa-nieba-card: brak konfiguracji");
-        this._config = { photo_opacity: 0.5, ...config };
+        this._config = { ...config };
     }
     getCardSize() {
         return 6;
     }
     connectedCallback() {
         super.connectedCallback();
-        this._timer = window.setInterval(() => void this._loadSky().catch(() => undefined), 10 * 60000);
+        this._timer = window.setInterval(() => {
+            void this._loadSky().catch(() => undefined);
+            void this._resolvePhoto().catch(() => undefined);
+        }, 10 * 60000);
+        if (this._data)
+            this.requestUpdate(); // re-attach the resize observer and redraw after a reconnect
     }
     disconnectedCallback() {
         super.disconnectedCallback();
         if (this._timer)
             clearInterval(this._timer);
+        cancelAnimationFrame(this._raf);
+        this._playing = false;
+        this._ro?.disconnect();
+        this._ro = undefined;
     }
     shouldUpdate(changed) {
-        // state changes elsewhere in HA must not rebuild the whole sky once the card is loaded
         if (this._data && changed.size === 1 && changed.has("hass"))
             return false;
         return true;
     }
     updated(changed) {
-        if (changed.has("hass") && this.hass && !this._data && !this._loading)
+        if (changed.has("hass") && this.hass && !this._data && !this._loading && !this._error)
             void this._load();
+        const stage = this.renderRoot.querySelector(".stage");
+        if (stage && !this._ro && typeof ResizeObserver !== "undefined") {
+            this._ro = new ResizeObserver(() => {
+                this._size = { w: stage.clientWidth, h: stage.clientHeight };
+            });
+            this._ro.observe(stage);
+        }
+        this._draw();
     }
     async _load() {
         this._loading = true;
         try {
             this._data = await this.hass.callWS({ type: "mapa_nieba/config" });
+            this._view = fromWindow(this._data.geometry);
+            await this._resolvePhoto();
             await this._loadSky();
             this._error = "";
         }
@@ -20130,163 +22452,216 @@ class MapaNiebaCard extends i {
             this._loading = false;
         }
     }
+    async _resolvePhoto() {
+        if (this._config.photo) {
+            this._photoSrc = this._config.photo;
+            return;
+        }
+        const p = this._data?.photo;
+        if (!p) {
+            this._photoSrc = "";
+            return;
+        }
+        const signed = await this.hass.callWS({
+            type: "auth/sign_path", path: `${p.url}?v=${p.version}`, expires: 24 * 3600,
+        });
+        this._photoSrc = signed.path;
+    }
     async _loadSky() {
         if (!this.hass || !this._data)
             return;
         this._skyBase = new Date();
         this._sky = await this.hass.callWS({ type: "mapa_nieba/sky", times: rangeTimes(this._skyBase) });
     }
-    get _isAdmin() {
-        return !!this.hass?.user?.is_admin;
+    // ---- interaction -------------------------------------------------------
+    _pan(dx, dy, pxPerDeg) {
+        this._view = panView(this._view, dx, dy, pxPerDeg);
     }
-    get _geometry() {
-        return this._calibrating && this._geo ? this._geo : this._data?.geometry;
+    _recenter() {
+        if (this._data)
+            this._view = fromWindow(this._data.geometry);
     }
-    _startCalibration() {
-        if (!this._data)
-            return;
-        this._geo = { ...this._data.geometry };
-        if (this._imgAspect > 0)
-            this._geo.aspect = this._imgAspect;
-        this._saveError = "";
-        this._polys = this._data.obstructions.map((p) => skyToPolygon(this._data.geometry, p));
-        this._calibrating = true;
-    }
-    async _save() {
-        if (!this._geo)
-            return;
-        // vertices only (subdivide = 1): re-saving must never multiply the vertex count
-        const obstructions = this._polys.filter((p) => p.length >= 3).map((p) => polygonToSky(this._geo, p, 1));
-        try {
-            await this.hass.callWS({ type: "mapa_nieba/save_geometry", geometry: this._geo, obstructions });
+    _togglePlay() {
+        this._playing = !this._playing;
+        if (this._playing) {
+            if (this._offset >= RANGE_MIN)
+                this._offset = -RANGE_MIN;
+            this._lastTick = performance.now();
+            const step = (t) => {
+                if (!this._playing)
+                    return;
+                this._advance(t - this._lastTick);
+                this._lastTick = t;
+                if (this._playing)
+                    this._raf = requestAnimationFrame(step);
+            };
+            this._raf = requestAnimationFrame(step);
         }
-        catch (e) {
-            this._saveError = e?.message || "Zapis nie powiódł się";
-            return;
-        }
-        this._saveError = "";
-        this._data = { ...this._data, geometry: this._geo, obstructions };
-        this._calibrating = false;
-        this._draw = null;
     }
-    _svgPoint(e) {
+    _advance(ms) {
+        const next = this._offset + (ms / PLAY_MS) * 2 * RANGE_MIN;
+        if (next >= RANGE_MIN) {
+            this._offset = RANGE_MIN;
+            this._playing = false;
+        }
+        else {
+            this._offset = next;
+        }
+    }
+    _local(e) {
         const r = e.currentTarget.getBoundingClientRect();
-        return [(e.clientX - r.left) / r.width, (e.clientY - r.top) / r.height];
+        return [e.clientX - r.left, e.clientY - r.top];
     }
     _down(e) {
-        if (!this._calibrating)
-            return;
-        if (this._draw) {
-            this._draw = [...this._draw, this._svgPoint(e)];
-            return;
-        }
-        this._drag = { x: e.clientX, y: e.clientY };
+        e.currentTarget.setPointerCapture?.(e.pointerId);
+        this._pointers.set(e.pointerId, { x: e.clientX, y: e.clientY });
+        this._moved = false;
+        this._pinch = 0;
     }
     _move(e) {
-        if (!this._drag || !this._geo)
+        const prev = this._pointers.get(e.pointerId);
+        if (!prev) {
+            const [x, y] = this._local(e);
+            const id = this._scene ? hitTest(this._scene, x, y) : null;
+            if (id !== this._hover)
+                this._hover = id;
             return;
-        const r = e.currentTarget.getBoundingClientRect();
-        this._geo = applyDrag(this._geo, e.clientX - this._drag.x, e.clientY - this._drag.y, r.width / this._geo.hfov);
-        this._drag = { x: e.clientX, y: e.clientY };
+        }
+        this._pointers.set(e.pointerId, { x: e.clientX, y: e.clientY });
+        if (this._pointers.size === 2) {
+            const [a, b] = [...this._pointers.values()];
+            const d = Math.hypot(a.x - b.x, a.y - b.y);
+            if (this._pinch)
+                this._view = zoomView(this._view, this._pinch / d);
+            this._pinch = d;
+            this._moved = true;
+            return;
+        }
+        const dx = e.clientX - prev.x;
+        const dy = e.clientY - prev.y;
+        if (Math.abs(dx) + Math.abs(dy) > 0) {
+            this._moved = true;
+            this._pan(dx, dy, this._size.w / this._view.hfov || 10);
+        }
+    }
+    _up(e) {
+        this._pointers.delete(e.pointerId);
+        if (!this._moved && this._scene) {
+            const [x, y] = this._local(e);
+            const id = hitTest(this._scene, x, y);
+            const ent = id ? this._data?.objects.find((o) => o.id === id)?.entity_id : null;
+            if (ent) {
+                this.dispatchEvent(new CustomEvent("hass-more-info", { detail: { entityId: ent }, bubbles: true, composed: true }));
+            }
+        }
     }
     _wheel(e) {
-        if (!this._calibrating || !this._geo)
-            return;
+        if (!e.ctrlKey)
+            return; // plain wheel scrolls the page; Ctrl+wheel zooms (like maps)
         e.preventDefault();
-        this._geo = applyZoom(this._geo, e.deltaY > 0 ? 1.04 : 0.96);
+        this._view = zoomView(this._view, e.deltaY > 0 ? 1.08 : 0.92);
     }
-    _closePoly() {
-        if (this._draw && this._draw.length >= 3)
-            this._polys = [...this._polys, this._draw];
-        this._draw = null;
+    // ---- drawing -----------------------------------------------------------
+    get _date() {
+        return new Date(this._skyBase.getTime() + this._offset * 60000);
     }
-    _photoLoaded(e) {
-        const img = e.target;
-        if (img.naturalWidth && img.naturalHeight)
-            this._imgAspect = img.naturalWidth / img.naturalHeight;
-    }
-    _openInfo(entityId) {
-        if (!entityId)
+    _draw() {
+        const { w, h } = this._size;
+        if (!this._data || !w || !h)
             return;
-        this.dispatchEvent(new CustomEvent("hass-more-info", { detail: { entityId }, bubbles: true, composed: true }));
+        const idx = sliderIndex(this._offset);
+        const sunAlt = this._sky?.sun_alt?.[idx];
+        const scene = buildScene(this._data, this._sky ? bodiesAt(this._sky, idx) : {}, this._date, this._view, w, h, sunAlt);
+        this._scene = scene;
+        const dpr = Math.min(2, window.devicePixelRatio || 1);
+        for (const cls of ["sky", "overlay"]) {
+            const c = this.renderRoot.querySelector(`canvas.${cls}`);
+            if (!c)
+                continue;
+            if (c.width !== Math.round(w * dpr) || c.height !== Math.round(h * dpr)) {
+                c.width = Math.round(w * dpr);
+                c.height = Math.round(h * dpr);
+                c.style.width = `${w}px`;
+                c.style.height = `${h}px`;
+            }
+            const ctx = c.getContext("2d");
+            if (!ctx)
+                continue;
+            ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+            if (cls === "sky") {
+                drawSky(ctx, scene, skyColors(sunAlt ?? -30), w, h);
+            }
+            else {
+                const ill = this._sky?.moon.illumination[idx];
+                const moon = ill !== undefined ? { ill, phase: this._sky.moon.phase[idx] } : null;
+                const highlight = new Set(this._data.objects.filter((o) => o.entity_id).map((o) => o.id));
+                drawOverlay(ctx, scene, highlight, this._hover, moon, w, h);
+            }
+        }
     }
     render() {
         if (this._error)
             return b `<ha-card><div class="err">${this._error}</div></ha-card>`;
-        const g = this._geometry;
-        if (!this._config || !this._data || !g)
-            return b `<ha-card header="Mapa nieba">Ładowanie…</ha-card>`;
-        const H = W / g.aspect;
-        const idx = sliderIndex(this._offset);
-        const date = new Date(this._skyBase.getTime() + this._offset * 60000);
-        const sky = this._sky;
-        const scene = buildScene({ ...this._data, geometry: g }, sky ? bodiesAt(sky, idx) : {}, date, W, H, sky?.sun_alt?.[idx]);
-        const obsShown = this._calibrating
-            ? this._polys
-            : this._data.obstructions.map((p) => skyToPolygon(g, p));
-        const toPts = (p) => p.map(([x, y]) => `${x * W},${y * H}`).join(" ");
-        const moon = sky && sky.moon.illumination[idx] !== undefined
-            ? { ill: sky.moon.illumination[idx], phase: sky.moon.phase[idx] }
-            : null;
+        if (!this._data)
+            return b `<ha-card><div class="err" style="color:inherit">Ładowanie mapy nieba…</div></ha-card>`;
+        const { w, h } = this._size;
+        const g = this._data.geometry;
+        const transform = this._photoSrc && w ? photoTransform(g, this._view, w, h) : null;
+        const opacity = this._config.photo_opacity ?? this._data.photo_opacity ?? 0.6;
+        const time = this._date.toLocaleTimeString("pl-PL", { hour: "2-digit", minute: "2-digit" });
+        const isAdmin = !!this.hass?.user?.is_admin;
         return b `<ha-card>
-      <div class="wrap">
-        <svg viewBox="0 0 ${W} ${H}" @pointerdown=${this._down} @pointermove=${this._move}
-             @pointerup=${() => (this._drag = undefined)} @wheel=${this._wheel}>
-          ${this._config.photo
-            ? w `<image href=${this._config.photo} width=${W} height=${H} preserveAspectRatio="none"
-                 opacity=${this._config.photo_opacity ?? 0.5}
-                 @load=${(e) => this._photoLoaded(e)}></image>`
+      <div class="stage" style="aspect-ratio:${g.aspect}">
+        <canvas class="sky"></canvas>
+        ${this._photoSrc
+            ? b `<img class="photo" src=${this._photoSrc} alt=""
+                 style="width:${w}px;height:${h}px;opacity:${opacity};display:${transform ? "block" : "none"};transform:${transform ?? "none"}"/>`
             : A}
-          ${scene.lines.map((l) => w `<line x1=${l.x1} y1=${l.y1} x2=${l.x2} y2=${l.y2} stroke="#6f8fff" stroke-width="0.6" opacity="0.5"/>`)}
-          ${scene.stars.map((s) => w `<circle cx=${s.x} cy=${s.y} r=${s.r} fill="#fff" opacity="0.9"/>`)}
-          <path d=${scene.horizon} stroke="#3c9" fill="none" stroke-width="1" opacity="0.6"/>
-          ${obsShown.map((p) => w `<polygon points=${toPts(p)} fill="#000" opacity="0.6" stroke="#f55" stroke-width="1"/>`)}
-          ${this._draw ? w `<polyline points=${toPts(this._draw)} fill="none" stroke="#fd0" stroke-width="2"/>` : A}
-          ${scene.bodies.map((b) => {
-            const known = !!b.entity_id;
-            const isMoon = b.kind === "moon" && moon;
-            return w `<g @mouseenter=${() => (this._hover = b)} @mouseleave=${() => (this._hover = null)}
-                          @click=${() => this._openInfo(b.entity_id)} style="cursor:${known ? "pointer" : "default"}">
-              ${isMoon
-                ? w `<g transform="translate(${b.x},${b.y}) scale(10)"><circle r="1" fill="#334"/><path d=${moonPath(moon.ill, moon.phase)} fill="#fff"/></g>`
-                : w `<circle cx=${b.x} cy=${b.y} r=${b.kind === "sun" ? 9 : 5} fill=${b.kind === "sun" ? "#fd0" : "#fc8"}
-                       stroke=${known ? "#fff" : "none"} stroke-width="1.5"/>`}
-              <text x=${b.x + 12} y=${b.y + 4} fill="#fff" font-size="13">${b.name}</text></g>`;
-        })}
-        </svg>
-        ${this._hover ? this._tooltip(this._hover, W, H) : A}
+        <canvas class="overlay" @pointerdown=${this._down} @pointermove=${this._move} @pointerup=${this._up}
+                @pointercancel=${this._up} @pointerleave=${() => (this._hover = null)} @wheel=${this._wheel}></canvas>
+        <div class="compass glass">${compassLabel(this._view.az)}</div>
+        <button class="fab recenter glass" title="Wróć do okna" @click=${() => this._recenter()}>⌖</button>
+        ${this._hover ? this._tooltip() : A}
+        <div class="bar glass">
+          <button title=${this._playing ? "Pauza" : "Odtwórz noc"} @click=${() => this._togglePlay()}>${this._playing ? "⏸" : "▶"}</button>
+          <input type="range" min=${-RANGE_MIN} max=${RANGE_MIN} step="1" .value=${String(Math.round(this._offset))}
+                 @input=${(e) => { this._playing = false; this._offset = Number(e.target.value); }}/>
+          <span class="time">${time}${this._offset === 0 ? " · teraz" : ""}</span>
+          <button title="Teraz" @click=${() => { this._playing = false; this._offset = 0; }}>●</button>
+          ${isAdmin ? b `<button class="wizard-btn" title="Kreator" @click=${() => (this._wizardOpen = true)}>⚙</button>` : A}
+        </div>
       </div>
-      <div class="bar">
-        <input type="range" min="-720" max="720" step="10" .value=${String(this._offset)}
-               @input=${(e) => (this._offset = Number(e.target.value))}/>
-        <span>${this._offset === 0 ? "teraz" : `${this._offset > 0 ? "+" : ""}${(this._offset / 60).toFixed(1)} h`}</span>
-        <button @click=${() => (this._offset = 0)}>Teraz</button>
-        ${this._isAdmin && !this._calibrating ? b `<button @click=${() => this._startCalibration()}>Kalibruj</button>` : A}
-      </div>
-      ${this._calibrating ? this._calibrationBar() : A}
+      ${this._wizardOpen
+            ? b `<mapa-nieba-wizard .hass=${this.hass} .data=${this._data} .photoUrl=${this._config.photo ? "" : this._photoSrc}
+                 .rises=${this._sky?.rises} @close=${() => (this._wizardOpen = false)} @saved=${() => this._afterSave()}></mapa-nieba-wizard>`
+            : A}
     </ha-card>`;
     }
-    _tooltip(b$1, w, h) {
-        const st = b$1.entity_id && this._offset === 0 ? this.hass?.states?.[b$1.entity_id]?.state : undefined;
-        return b `<div class="tip" style="left:${(b$1.x / w) * 100}%;top:${(b$1.y / h) * 100}%">
-      <b>${b$1.name}</b><br/>wys. ${b$1.alt.toFixed(1)}°, azym. ${b$1.az.toFixed(1)}°
-      ${st ? b `<br/>${STATE_LABELS[st] ?? st}` : A}</div>`;
+    async _afterSave() {
+        this._wizardOpen = false;
+        // saving options reloads the integration; retry until it answers again
+        for (let i = 0; i < 6; i++) {
+            await new Promise((r) => setTimeout(r, 1000));
+            try {
+                this._data = await this.hass.callWS({ type: "mapa_nieba/config" });
+                this._view = fromWindow(this._data.geometry);
+                await this._resolvePhoto();
+                await this._loadSky();
+                return;
+            }
+            catch {
+                /* integration still reloading */
+            }
+        }
     }
-    _calibrationBar() {
-        const g = this._geo;
-        return b `<div class="bar">
-      <span>Przeciągnij mapę, kółkiem zmień zoom.</span>
-      <label>Obrót <input type="range" min="-30" max="30" step="0.5" .value=${String(g.roll)}
-        @input=${(e) => (this._geo = applyRoll(g, Number(e.target.value)))}/></label>
-      <span>az ${g.az_center.toFixed(1)}° alt ${g.alt_center.toFixed(1)}° fov ${g.hfov.toFixed(1)}°</span>
-      ${this._draw
-            ? b `<button @click=${() => this._closePoly()}>Zamknij kształt</button>`
-            : b `<button @click=${() => (this._draw = [])}>Dodaj przeszkodę</button>
-               <button @click=${() => (this._polys = this._polys.slice(0, -1))}>Cofnij przeszkodę</button>`}
-      <button @click=${() => this._save()}>Zapisz</button>
-      ${this._saveError ? b `<span class="err">${this._saveError}</span>` : A}
-      <button @click=${() => ((this._calibrating = false), (this._draw = null))}>Anuluj</button>
-    </div>`;
+    _tooltip() {
+        const b$1 = this._scene?.bodies.find((x) => x.id === this._hover);
+        if (!b$1)
+            return A;
+        const st = b$1.entity_id && this._offset === 0 ? this.hass?.states?.[b$1.entity_id]?.state : undefined;
+        return b `<div class="tip glass" style="left:${b$1.x}px;top:${b$1.y}px">
+      <b>${b$1.name}</b><br/>wys. ${b$1.alt.toFixed(1)}° · azym. ${b$1.az.toFixed(1)}°
+      ${st ? b `<br/>${STATE_LABELS[st] ?? st}` : A}</div>`;
     }
 }
 MapaNiebaCard.properties = {
@@ -20295,32 +22670,48 @@ MapaNiebaCard.properties = {
     _data: { state: true },
     _sky: { state: true },
     _offset: { state: true },
-    _geo: { state: true },
-    _polys: { state: true },
-    _draw: { state: true },
-    _calibrating: { state: true },
+    _view: { state: true },
+    _playing: { state: true },
     _hover: { state: true },
     _error: { state: true },
-    _saveError: { state: true },
-    _imgAspect: { state: true },
+    _photoSrc: { state: true },
+    _wizardOpen: { state: true },
+    _size: { state: true },
 };
 MapaNiebaCard.styles = i$3 `
-    ha-card { padding: 8px; }
-    svg { width: 100%; display: block; background: #060a18; touch-action: none; }
-    .bar { display: flex; gap: 8px; align-items: center; margin-top: 8px; flex-wrap: wrap; }
-    .bar input[type="range"] { flex: 1; min-width: 120px; }
-    .tip { position: absolute; background: var(--card-background-color, #222); color: var(--primary-text-color, #fff);
-           padding: 4px 8px; border-radius: 6px; font-size: 12px; pointer-events: none; box-shadow: 0 1px 4px #0008; }
-    .wrap { position: relative; }
-    .err { color: var(--error-color, red); padding: 8px; }
-    button { cursor: pointer; }
+    ha-card { overflow: hidden; padding: 0; }
+    .stage { position: relative; width: 100%; overflow: hidden; background: #050816; touch-action: pan-y;
+             user-select: none; max-height: 85vh; }
+    canvas, img.photo { position: absolute; left: 0; top: 0; }
+    img.photo { transform-origin: 0 0; pointer-events: none; }
+    canvas.overlay { cursor: grab; }
+    canvas.overlay:active { cursor: grabbing; }
+    .glass { background: rgba(10, 14, 30, 0.55); backdrop-filter: blur(8px); -webkit-backdrop-filter: blur(8px);
+             color: #fff; border: 1px solid rgba(255, 255, 255, 0.08); }
+    .compass { position: absolute; top: 10px; left: 50%; transform: translateX(-50%); border-radius: 999px;
+               padding: 3px 12px; font-size: 12px; letter-spacing: 1.5px; pointer-events: none; }
+    .fab { position: absolute; top: 10px; right: 10px; width: 36px; height: 36px; border-radius: 50%;
+           font-size: 18px; cursor: pointer; display: flex; align-items: center; justify-content: center; }
+    .bar { position: absolute; left: 10px; right: 10px; bottom: 10px; border-radius: 12px; padding: 6px 10px;
+           display: flex; gap: 8px; align-items: center; font-size: 13px; }
+    .bar button { background: rgba(255, 255, 255, 0.12); border: 0; color: #fff; border-radius: 999px;
+                  min-width: 32px; height: 28px; cursor: pointer; font-size: 14px; }
+    .bar input { flex: 1; accent-color: #8fb3ff; min-width: 60px; }
+    .time { font-variant-numeric: tabular-nums; min-width: 92px; text-align: center; opacity: .9; }
+    .tip { position: absolute; transform: translate(14px, -50%); border-radius: 8px; padding: 6px 10px;
+           font-size: 12px; pointer-events: none; white-space: nowrap; }
+    .err { color: var(--error-color, #f66); padding: 12px; }
   `;
-customElements.define("mapa-nieba-card", MapaNiebaCard);
+if (!customElements.get("mapa-nieba-card"))
+    customElements.define("mapa-nieba-card", MapaNiebaCard);
 window.customCards = window.customCards || [];
-window.customCards.push({
-    type: "mapa-nieba-card",
-    name: "Mapa nieba",
-    description: "Niebo z balkonu: planety, gwiazdy i Księżyc na zdjęciu okna.",
-});
+if (!window.customCards.some((c) => c.type === "mapa-nieba-card")) {
+    window.customCards.push({
+        type: "mapa-nieba-card",
+        name: "Mapa nieba",
+        description: "Niebo z balkonu w stylu planetarium: planety, gwiazdy, konstelacje i Księżyc.",
+        preview: true,
+    });
+}
 
-export { MapaNiebaCard };
+export { MapaNiebaCard, compassLabel };

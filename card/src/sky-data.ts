@@ -8,6 +8,7 @@ export interface SkyReply {
   objects: Record<string, [number, number][]>;
   sun_alt: number[];
   moon: { illumination: number[]; phase: number[] };
+  rises?: { sun: { time: string; az: number } | null; moon: { time: string; az: number } | null };
 }
 
 /** 145 ISO times from now-12h to now+12h. */

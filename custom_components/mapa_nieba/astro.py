@@ -122,6 +122,18 @@ def compute_track(
     return out
 
 
+def next_rise(
+    obj: SkyObject, observer: Observer, when: datetime
+) -> tuple[datetime, float] | None:
+    """Time and azimuth of the next rising within a day; None if it does not rise."""
+    eph = _eph()
+    rise, _, _ = _events(eph, obj, observer, when)
+    if rise is None:
+        return None
+    _, az = _altaz(eph, obj, observer, _times([rise]))
+    return rise, float(az[0]) % 360.0
+
+
 def moon_phases(times: Sequence[datetime]) -> list[tuple[float, float]]:
     """(illumination 0..1, phase 0..1 of the cycle) for each time."""
     deg = almanac.moon_phase(_eph(), _times(times)).degrees

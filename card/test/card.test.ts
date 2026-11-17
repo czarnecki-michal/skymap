@@ -5,92 +5,114 @@ const cfg = {
   geometry: { az_center: 135, alt_center: 15, hfov: 67, aspect: 4 / 3, roll: 0 },
   obstructions: [], twilight: -12, observer: { lat: 53.4, lon: 14.5, elevation: 10 },
   objects: [{ id: "venus", name: "Wenus", kind: "planet", entity_id: "sensor.mapa_nieba_wenus" }],
+  photo: { url: "/api/mapa_nieba/photo", version: 7 }, photo_opacity: 0.6,
 };
 
-function make(isAdmin: boolean) {
+function make(isAdmin: boolean, yaml: any = {}) {
   const el = new MapaNiebaCard();
-  el.setConfig({ photo: "/local/balkon.jpg" });
+  el.setConfig(yaml);
   const callWS = vi.fn(async (msg: any) => {
     if (msg.type === "mapa_nieba/config") return cfg;
-    if (msg.type === "mapa_nieba/sky") return { objects: { venus: msg.times.map(() => [30, 140]) }, sun_alt: [], moon: { illumination: [], phase: [] } };
-    return { saved: true };
+    if (msg.type === "mapa_nieba/sky")
+      return { objects: { venus: msg.times.map(() => [30, 140]) }, sun_alt: msg.times.map(() => -30),
+               moon: { illumination: [], phase: [] }, rises: { sun: null, moon: null } };
+    if (msg.type === "auth/sign_path") return { path: msg.path + "&authSig=x" };
+    return {};
   });
-  el.hass = { callWS, user: { is_admin: isAdmin }, states: {} };
+  el.hass = { callWS, user: { is_admin: isAdmin }, states: {}, config: { time_zone: "Europe/Warsaw" } };
   return { el, callWS };
 }
 
-describe("card", () => {
-  it("works without a photo", async () => {
+async function mounted(el: MapaNiebaCard) {
+  await el._load();
+  document.body.appendChild(el);
+  await el.updateComplete;
+  return el.shadowRoot!;
+}
+
+describe("card v2", () => {
+  it("works without any options and offers a stub config", () => {
+    expect(MapaNiebaCard.getStubConfig()).toEqual({});
+    expect(() => new MapaNiebaCard().setConfig({})).not.toThrow();
+  });
+  it("keeps the bar and the recentre button inside the map", async () => {
     const { el } = make(true);
-    el.setConfig({});
-    await el._load();
-    document.body.appendChild(el);
-    await el.updateComplete;
-    expect(el.shadowRoot!.querySelector("image")).toBeNull();
-    expect(el.shadowRoot!.querySelector("svg")).not.toBeNull();
+    const root = await mounted(el);
+    const stage = root.querySelector(".stage")!;
+    expect(stage.querySelector(".bar")).not.toBeNull();
+    expect(stage.querySelector(".recenter")).not.toBeNull();
     el.remove();
   });
-  it("defaults photo_opacity to 0.5 and registers in customCards", () => {
-    const el = new MapaNiebaCard();
-    el.setConfig({ photo: "/x.jpg" });
-    expect(el._config?.photo_opacity).toBe(0.5);
-    expect((window as any).customCards.some((c: any) => c.type === "mapa-nieba-card")).toBe(true);
-  });
-  it("shows the calibrate button only to admins", async () => {
+  it("shows the wizard button only to admins", async () => {
     for (const [admin, expected] of [[true, true], [false, false]] as const) {
       const { el } = make(admin);
-      await el._load();
-      document.body.appendChild(el);
-      await el.updateComplete;
-      const has = [...el.shadowRoot!.querySelectorAll("button")].some((b) => b.textContent?.includes("Kalibruj"));
-      expect(has).toBe(expected);
+      const root = await mounted(el);
+      expect(!!root.querySelector(".wizard-btn")).toBe(expected);
       el.remove();
     }
   });
-  it("save sends save_geometry with the draft geometry", async () => {
-    const { el, callWS } = make(true);
-    await el._load();
-    el._startCalibration();
-    await el._save();
-    const call = callWS.mock.calls.map((c) => c[0]).find((m: any) => m.type === "mapa_nieba/save_geometry");
-    expect(call.geometry.az_center).toBe(135);
-    expect(el._calibrating).toBe(false);
-  });
-});
-
-describe("review fixes", () => {
-  it("calibrate -> save -> calibrate does not multiply obstruction vertices", async () => {
-    const { el, callWS } = make(true);
-    await el._load();
-    const square = [[0.3, 0.3], [0.5, 0.3], [0.5, 0.6], [0.3, 0.6]] as [number, number][];
-    el._startCalibration();
-    el._polys = [square];
-    await el._save();
-    const sent = callWS.mock.calls.map((c) => c[0]).find((m: any) => m.type === "mapa_nieba/save_geometry");
-    expect(sent.obstructions[0].length).toBe(4);
-    el._startCalibration();
-    expect(el._polys[0].length).toBe(4);
-  });
-  it("calibration adopts the aspect of the loaded photo", async () => {
+  it("recentre restores the window direction after panning", async () => {
     const { el } = make(true);
     await el._load();
-    el._imgAspect = 0.75;
-    el._startCalibration();
-    expect(el._geo!.aspect).toBeCloseTo(0.75);
+    el._pan(200, -50, 10);
+    expect(el._view.az).not.toBeCloseTo(135);
+    el._recenter();
+    expect(el._view).toEqual({ az: 135, alt: 15, hfov: 67 });
   });
-  it("a rejected save keeps calibration open and reports the error", async () => {
-    const { el, callWS } = make(true);
+  it("play runs to the end of the range and stops", async () => {
+    const { el } = make(true);
     await el._load();
-    el._startCalibration();
-    callWS.mockImplementation(async () => { throw new Error("boom"); });
-    await el._save();
-    expect(el._calibrating).toBe(true);
-    expect(el._saveError).toMatch(/boom/);
+    el._togglePlay();
+    expect(el._playing).toBe(true);
+    el._advance(30000);
+    expect(el._offset).toBe(720);
+    expect(el._playing).toBe(false);
+  });
+  it("YAML photo wins over the integration photo", async () => {
+    const a = make(true, { photo: "/local/balkon.jpg" });
+    await a.el._load();
+    expect(a.el._photoSrc).toBe("/local/balkon.jpg");
+    const b = make(true);
+    await b.el._load();
+    expect(b.el._photoSrc).toContain("/api/mapa_nieba/photo?v=7");
   });
   it("hass-only updates do not re-render once loaded", async () => {
     const { el } = make(true);
     await el._load();
     expect(el.shouldUpdate(new Map([["hass", 1]]))).toBe(false);
     expect(el.shouldUpdate(new Map([["_offset", 1]]))).toBe(true);
+  });
+  it("the wizard button opens the wizard", async () => {
+    const { el } = make(true);
+    const root = await mounted(el);
+    (root.querySelector(".wizard-btn") as HTMLButtonElement).click();
+    await el.updateComplete;
+    expect(root.querySelector("mapa-nieba-wizard")).not.toBeNull();
+    el.remove();
+  });
+});
+
+describe("card review fixes", () => {
+  it("signs the photo URL for a long time", async () => {
+    const { el, callWS } = make(true);
+    await el._load();
+    const sign = callWS.mock.calls.map((c) => c[0]).find((m: any) => m.type === "auth/sign_path");
+    expect(sign.expires).toBeGreaterThanOrEqual(3600);
+  });
+  it("wheel zooms only with Ctrl so the page can scroll", async () => {
+    const { el } = make(true);
+    await el._load();
+    const before = el._view.hfov;
+    el._wheel({ deltaY: 100, ctrlKey: false, preventDefault() {} } as any);
+    expect(el._view.hfov).toBe(before);
+    el._wheel({ deltaY: 100, ctrlKey: true, preventDefault() {} } as any);
+    expect(el._view.hfov).toBeGreaterThan(before);
+  });
+  it("stops playing when removed from the page", async () => {
+    const { el } = make(true);
+    await mounted(el);
+    el._togglePlay();
+    el.remove();
+    expect(el._playing).toBe(false);
   });
 });

@@ -16,3 +16,19 @@ describe("star catalogue", () => {
     }
   });
 });
+
+describe("constellations", () => {
+  const cons = (data as any).constellations as { id: string; name: string; hips: number[] }[];
+  it("has Polish names and at least two catalogue stars each", () => {
+    expect(cons.length).toBeGreaterThanOrEqual(80);
+    for (const c of cons) {
+      expect(c.name.length).toBeGreaterThan(0);
+      expect(c.hips.filter((h) => hips.has(h)).length).toBeGreaterThanOrEqual(2);
+    }
+  });
+  it("maps known ids", () => {
+    const by = new Map(cons.map((c) => [c.id, c.name]));
+    expect(by.get("Ori")).toBe("Orion");
+    expect(by.get("UMa")).toBe("Wielka Niedźwiedzica");
+  });
+});

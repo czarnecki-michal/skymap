@@ -1,0 +1,6 @@
+.venv/
+__pycache__/
+.superpowers/
+node_modules/
+*.pyc
+.pytest_cache/

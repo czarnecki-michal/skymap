@@ -91,3 +91,28 @@ describe("card v2", () => {
     el.remove();
   });
 });
+
+describe("card review fixes", () => {
+  it("signs the photo URL for a long time", async () => {
+    const { el, callWS } = make(true);
+    await el._load();
+    const sign = callWS.mock.calls.map((c) => c[0]).find((m: any) => m.type === "auth/sign_path");
+    expect(sign.expires).toBeGreaterThanOrEqual(3600);
+  });
+  it("wheel zooms only with Ctrl so the page can scroll", async () => {
+    const { el } = make(true);
+    await el._load();
+    const before = el._view.hfov;
+    el._wheel({ deltaY: 100, ctrlKey: false, preventDefault() {} } as any);
+    expect(el._view.hfov).toBe(before);
+    el._wheel({ deltaY: 100, ctrlKey: true, preventDefault() {} } as any);
+    expect(el._view.hfov).toBeGreaterThan(before);
+  });
+  it("stops playing when removed from the page", async () => {
+    const { el } = make(true);
+    await mounted(el);
+    el._togglePlay();
+    el.remove();
+    expect(el._playing).toBe(false);
+  });
+});

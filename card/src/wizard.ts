@@ -57,7 +57,31 @@ export function setPhotoTime(s: WizardState, time: Date): WizardState {
 }
 
 export function skipPhoto(s: WizardState): WizardState {
-  return { ...s, photo: { needsTime: false, deleted: !!s.photo.blobUrl, blobUrl: undefined } };
+  return { ...s, photo: { needsTime: false, deleted: s.photo.deleted || !!s.photo.blobUrl, blobUrl: undefined } };
+}
+
+const PHOTO_TYPES = ["image/jpeg", "image/png", "image/webp"];
+export const PHOTO_MAX_BYTES = 15 * 1024 * 1024;
+
+/** Error message for a file the integration would reject, or null when it is fine. */
+export function validatePhotoFile(f: { type: string; size: number }): string | null {
+  if (!PHOTO_TYPES.includes(f.type)) return "Ten format nie jest obsługiwany (np. HEIC) – zapisz zdjęcie jako JPEG, PNG lub WebP.";
+  if (f.size > PHOTO_MAX_BYTES) return "Zdjęcie jest za duże (maks. 15 MB).";
+  return null;
+}
+
+/** "YYYY-MM-DDTHH:MM" typed by the user, read in the HA time zone. */
+export function parseLocalInput(v: string, timeZone: string): Date {
+  const [d, t] = v.split("T");
+  return exifToUtc({ local: `${d.replaceAll("-", ":")} ${t.slice(0, 5)}:00`, offset: null }, timeZone);
+}
+
+export function formatLocalInput(d: Date, timeZone: string): string {
+  const f = new Intl.DateTimeFormat("en-CA", {
+    timeZone, hourCycle: "h23", year: "numeric", month: "2-digit", day: "2-digit", hour: "2-digit", minute: "2-digit",
+  });
+  const p = Object.fromEntries(f.formatToParts(d).map((x) => [x.type, x.value]));
+  return `${p.year}-${p.month}-${p.day}T${p.hour}:${p.minute}`;
 }
 
 export const hasPhoto = (s: WizardState) => !!s.photo.blobUrl && !s.photo.deleted;
@@ -96,6 +120,9 @@ export function back(s: WizardState): WizardState {
 }
 
 export function chooseMethod(s: WizardState, method: "stars" | "compass"): WizardState {
+  if (method === "stars" && !s.photo.time) {
+    return { ...s, error: "Do kalibracji po gwiazdach podaj godzinę zrobienia zdjęcia (krok Zdjęcie)." };
+  }
   return next({ ...s, method });
 }
 

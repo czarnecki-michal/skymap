@@ -52,3 +52,30 @@ async def test_delete_photo_and_opacity(hass, hass_client, hass_ws_client):
     await ws.send_json({"id": 2, "type": "mapa_nieba/config"})
     res = (await ws.receive_json())["result"]
     assert res["photo"] is None and res["photo_opacity"] == 0.4
+
+
+async def test_large_upload_is_stored_completely(hass, hass_client):
+    await _setup(hass)
+    client = await hass_client()
+    big = b"\xff\xd8" + bytes(range(256)) * (6 * 1024 * 1024 // 256) + b"\xff\xd9"
+    resp = await client.post("/api/mapa_nieba/photo", data=big, headers={"Content-Type": "image/jpeg"})
+    assert resp.status == 200
+    await hass.async_block_till_done()
+    got = await (await client.get("/api/mapa_nieba/photo")).read()
+    assert len(got) == len(big) and got == big
+
+
+async def test_save_geometry_right_after_upload(hass, hass_client, hass_ws_client):
+    await _setup(hass)
+    client = await hass_client()
+    ws = await hass_ws_client(hass)
+    resp = await client.post("/api/mapa_nieba/photo", data=JPEG, headers={"Content-Type": "image/jpeg"})
+    assert resp.status == 200
+    geo = {"az_center": 100, "alt_center": 10, "hfov": 60, "aspect": 1.5, "roll": 0}
+    await ws.send_json({"id": 1, "type": "mapa_nieba/save_geometry", "geometry": geo})
+    msg = await ws.receive_json()
+    assert msg["success"], msg
+    await hass.async_block_till_done()
+    entry = hass.config_entries.async_entries("mapa_nieba")[0]
+    assert entry.options["geometry"]["az_center"] == 100
+    assert entry.options[CONF_PHOTO]["file"] == "photo.jpg"

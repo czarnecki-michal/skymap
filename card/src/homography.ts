@@ -45,7 +45,7 @@ export function applyH(h: number[], x: number, y: number): P {
  * appears in `view`. Null when any corner is behind the viewer.
  */
 export function photoTransform(win: WindowGeometry, view: View, w: number, h: number): string | null {
-  const vg = viewGeometry(view, win.aspect);
+  const vg = viewGeometry(view, w / h); // container aspect: the stage may be clamped
   const corners: P[] = [[0, 0], [1, 0], [1, 1], [0, 1]];
   const dst: P[] = [];
   for (const [cx, cy] of corners) {

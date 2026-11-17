@@ -174,7 +174,7 @@ function solve(A, b) {
  * appears in `view`. Null when any corner is behind the viewer.
  */
 function photoTransform(win, view, w, h) {
-    const vg = viewGeometry(view, win.aspect);
+    const vg = viewGeometry(view, w / h); // container aspect: the stage may be clamped
     const corners = [[0, 0], [1, 0], [1, 1], [0, 1]];
     const dst = [];
     for (const [cx, cy] of corners) {
@@ -21731,7 +21731,11 @@ function solveGeometry(start, matches) {
         return r;
     };
     const cost = (r) => r.reduce((s, x) => s + x * x, 0);
-    let p = full ? [start.az_center, start.alt_center, start.hfov, start.roll] : [start.az_center, start.alt_center];
+    // seed the direction from the first match so the fit can reach any azimuth
+    const m0 = matches[0];
+    const [seedAz, seedAlt] = unproject({ ...start, az_center: m0.az, alt_center: m0.alt }, 1 - m0.x, 1 - m0.y);
+    const seed = { az: seedAz, alt: Math.max(-10, Math.min(89, seedAlt)) };
+    let p = full ? [seed.az, seed.alt, start.hfov, start.roll] : [seed.az, seed.alt];
     let r = residuals(p);
     let lambda = 1e-3;
     for (let it = 0; it < 50; it++) {
@@ -21766,7 +21770,11 @@ function solveGeometry(start, matches) {
     if (!Number.isFinite(error) || error > 0.01) {
         return { fail: "Nie udało się dopasować zdjęcia – sprawdź, czy kliknięte obiekty są właściwe." };
     }
-    return { geometry: toGeo(p), error };
+    const geometry = toGeo(p);
+    if (full && (Math.abs(geometry.roll) > 30 || geometry.hfov <= 15 || geometry.hfov >= 115)) {
+        return { fail: "Dopasowanie wygląda nieprawdopodobnie – sprawdź, czy kliknięte obiekty są właściwe." };
+    }
+    return { geometry, error };
 }
 
 function initWizard(data, existingPhotoUrl) {
@@ -21794,7 +21802,29 @@ function setPhotoTime(s, time) {
     return { ...s, photo: { ...s.photo, time, needsTime: false } };
 }
 function skipPhoto(s) {
-    return { ...s, photo: { needsTime: false, deleted: !!s.photo.blobUrl, blobUrl: undefined } };
+    return { ...s, photo: { needsTime: false, deleted: s.photo.deleted || !!s.photo.blobUrl, blobUrl: undefined } };
+}
+const PHOTO_TYPES = ["image/jpeg", "image/png", "image/webp"];
+const PHOTO_MAX_BYTES = 15 * 1024 * 1024;
+/** Error message for a file the integration would reject, or null when it is fine. */
+function validatePhotoFile(f) {
+    if (!PHOTO_TYPES.includes(f.type))
+        return "Ten format nie jest obsługiwany (np. HEIC) – zapisz zdjęcie jako JPEG, PNG lub WebP.";
+    if (f.size > PHOTO_MAX_BYTES)
+        return "Zdjęcie jest za duże (maks. 15 MB).";
+    return null;
+}
+/** "YYYY-MM-DDTHH:MM" typed by the user, read in the HA time zone. */
+function parseLocalInput(v, timeZone) {
+    const [d, t] = v.split("T");
+    return exifToUtc({ local: `${d.replaceAll("-", ":")} ${t.slice(0, 5)}:00`, offset: null }, timeZone);
+}
+function formatLocalInput(d, timeZone) {
+    const f = new Intl.DateTimeFormat("en-CA", {
+        timeZone, hourCycle: "h23", year: "numeric", month: "2-digit", day: "2-digit", hour: "2-digit", minute: "2-digit",
+    });
+    const p = Object.fromEntries(f.formatToParts(d).map((x) => [x.type, x.value]));
+    return `${p.year}-${p.month}-${p.day}T${p.hour}:${p.minute}`;
 }
 const hasPhoto = (s) => !!s.photo.blobUrl && !s.photo.deleted;
 function canNext(s) {
@@ -21830,6 +21860,9 @@ function back(s) {
     return { ...s, step: prev[s.step], error: "" };
 }
 function chooseMethod(s, method) {
+    if (method === "stars" && !s.photo.time) {
+        return { ...s, error: "Do kalibracji po gwiazdach podaj godzinę zrobienia zdjęcia (krok Zdjęcie)." };
+    }
     return next({ ...s, method });
 }
 /** Add a clicked object (max 2 – a third replaces the oldest) and re-solve. */
@@ -21868,8 +21901,6 @@ const STEPS = [
     ["obstructions", "Przeszkody"],
     ["preview", "Podgląd"],
 ];
-const pad = (n) => String(n).padStart(2, "0");
-const toLocalInput = (d) => `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}T${pad(d.getHours())}:${pad(d.getMinutes())}`;
 class MapaNiebaWizard extends i {
     constructor() {
         super(...arguments);
@@ -21887,10 +21918,19 @@ class MapaNiebaWizard extends i {
             this.state = initWizard(this.data, this.photoUrl);
     }
     // ---------------------------------------------------------------- actions
+    get _tz() {
+        return this.hass?.config?.time_zone || "UTC";
+    }
     _close() {
         this.dispatchEvent(new CustomEvent("close"));
     }
     async _onFile(file) {
+        const bad = validatePhotoFile(file);
+        if (bad) {
+            this._msg = bad;
+            return;
+        }
+        this._msg = "";
         const buf = await file.arrayBuffer();
         const exif = readExifDate(buf);
         const blobUrl = URL.createObjectURL(file);
@@ -22129,7 +22169,7 @@ class MapaNiebaWizard extends i {
     _frame(content, onClick, extra = "") {
         const s = this.state;
         const src = hasPhoto(s) ? s.photo.blobUrl : "";
-        return b `<div class="frame" style="aspect-ratio:${s.geometry.aspect};${extra}" @click=${onClick ?? (() => undefined)}>
+        return b `<div class="frame" style="aspect-ratio:${s.geometry.aspect};width:min(100%, calc(60vh * ${s.geometry.aspect}));${extra}" @click=${onClick ?? (() => undefined)}>
       ${src ? b `<img src=${src} alt="" style="opacity:${s.step === "preview" ? s.opacity : 1}"/>` : A}
       ${content}
     </div>`;
@@ -22154,7 +22194,7 @@ class MapaNiebaWizard extends i {
         return b `
       <p class="hint">Zdjęcie jest opcjonalne. Najlepiej nocne, zrobione z miejsca, z którego patrzysz.</p>
       ${hasPhoto(s)
-            ? b `${this._frame(A, undefined, "max-height:40vh;cursor:default")}`
+            ? b `${this._frame(A, undefined, "cursor:default")}`
             : b `<label class="drop" @dragover=${(e) => e.preventDefault()}
                  @drop=${(e) => { e.preventDefault(); const f = e.dataTransfer?.files[0]; if (f)
                 void this._onFile(f); }}>
@@ -22163,11 +22203,11 @@ class MapaNiebaWizard extends i {
                    @change=${(e) => { const f = e.target.files?.[0]; if (f)
                 void this._onFile(f); }}/>
                </label>`}
-      ${hasPhoto(s) && s.photo.blob
-            ? b `<label>Kiedy zrobiono zdjęcie ${s.photo.needsTime ? b `<b>(brak w pliku – podaj)</b>` : "(odczytane z pliku)"}</label>
-               <input type="datetime-local" .value=${s.photo.time ? toLocalInput(s.photo.time) : ""}
+      ${hasPhoto(s)
+            ? b `<label>Kiedy zrobiono zdjęcie ${s.photo.time ? (s.photo.blob && !s.photo.needsTime ? "(odczytane z pliku)" : "") : b `<b>(potrzebne do kalibracji po gwiazdach – podaj)</b>`}</label>
+               <input type="datetime-local" .value=${s.photo.time ? formatLocalInput(s.photo.time, this._tz) : ""}
                  @change=${(e) => { const v = e.target.value; if (v)
-                this.state = setPhotoTime(this.state, new Date(v)); }}/>`
+                this.state = setPhotoTime(this.state, parseLocalInput(v, this._tz)); }}/>`
             : A}
       ${hasPhoto(s)
             ? b `<label>Przezroczystość zdjęcia na mapie: ${Math.round(s.opacity * 100)}%</label>
@@ -22259,7 +22299,7 @@ class MapaNiebaWizard extends i {
         const t = this._preview ? new Date(this._preview.base.getTime() + this._previewMin * 60000) : null;
         return b `
       <p class="hint">Tak będzie wyglądać dzisiejsza noc w Twoim kadrze. Przesuń suwak, żeby zobaczyć ruch nieba.</p>
-      <div class="frame" style="aspect-ratio:${this.state.geometry.aspect};cursor:default">
+      <div class="frame" style="aspect-ratio:${this.state.geometry.aspect};width:min(100%, calc(60vh * ${this.state.geometry.aspect}));cursor:default">
         <canvas class="wz"></canvas>
         ${hasPhoto(this.state) ? b `<img src=${this.state.photo.blobUrl} alt="" style="opacity:${this.state.opacity}"/>` : A}
         <canvas class="wz-over"></canvas>
@@ -22301,7 +22341,7 @@ MapaNiebaWizard.styles = i$3 `
     footer { display: flex; justify-content: space-between; gap: 8px; margin-top: 14px; align-items: center; }
     .msg { color: #ffb4a8; font-size: 13px; }
     .hint { color: #aab3d9; font-size: 13px; margin: 6px 0; }
-    .frame { position: relative; width: 100%; max-height: 60vh; border-radius: 10px; overflow: hidden;
+    .frame { position: relative; margin: 0 auto; border-radius: 10px; overflow: hidden;
              background: linear-gradient(#0b1430, #1b2550 70%, #121318 70%); cursor: crosshair; }
     .frame img { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: fill; }
     .frame canvas, .frame svg { position: absolute; inset: 0; width: 100%; height: 100%; }
@@ -22363,13 +22403,19 @@ class MapaNiebaCard extends i {
     }
     connectedCallback() {
         super.connectedCallback();
-        this._timer = window.setInterval(() => void this._loadSky().catch(() => undefined), 10 * 60000);
+        this._timer = window.setInterval(() => {
+            void this._loadSky().catch(() => undefined);
+            void this._resolvePhoto().catch(() => undefined);
+        }, 10 * 60000);
+        if (this._data)
+            this.requestUpdate(); // re-attach the resize observer and redraw after a reconnect
     }
     disconnectedCallback() {
         super.disconnectedCallback();
         if (this._timer)
             clearInterval(this._timer);
         cancelAnimationFrame(this._raf);
+        this._playing = false;
         this._ro?.disconnect();
         this._ro = undefined;
     }
@@ -22416,7 +22462,9 @@ class MapaNiebaCard extends i {
             this._photoSrc = "";
             return;
         }
-        const signed = await this.hass.callWS({ type: "auth/sign_path", path: `${p.url}?v=${p.version}` });
+        const signed = await this.hass.callWS({
+            type: "auth/sign_path", path: `${p.url}?v=${p.version}`, expires: 24 * 3600,
+        });
         this._photoSrc = signed.path;
     }
     async _loadSky() {
@@ -22508,6 +22556,8 @@ class MapaNiebaCard extends i {
         }
     }
     _wheel(e) {
+        if (!e.ctrlKey)
+            return; // plain wheel scrolls the page; Ctrl+wheel zooms (like maps)
         e.preventDefault();
         this._view = zoomView(this._view, e.deltaY > 0 ? 1.08 : 0.92);
     }
@@ -22630,7 +22680,7 @@ MapaNiebaCard.properties = {
 };
 MapaNiebaCard.styles = i$3 `
     ha-card { overflow: hidden; padding: 0; }
-    .stage { position: relative; width: 100%; overflow: hidden; background: #050816; touch-action: none;
+    .stage { position: relative; width: 100%; overflow: hidden; background: #050816; touch-action: pan-y;
              user-select: none; max-height: 85vh; }
     canvas, img.photo { position: absolute; left: 0; top: 0; }
     img.photo { transform-origin: 0 0; pointer-events: none; }

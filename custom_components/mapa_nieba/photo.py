@@ -14,7 +14,8 @@ from .const import CONF_PHOTO, DOMAIN, PHOTO_MAX_BYTES, PHOTO_TYPES, PHOTO_URL
 
 
 def _entry(hass: HomeAssistant):
-    entries = [e for e in hass.config_entries.async_entries(DOMAIN) if hasattr(e, "runtime_data")]
+    # options live on the entry itself, so this works even while the entry is reloading
+    entries = hass.config_entries.async_entries(DOMAIN)
     return entries[0] if entries else None
 
 
@@ -59,9 +60,12 @@ class MapaNiebaPhotoView(HomeAssistantView):
             return web.Response(status=415, text="Obsługiwane formaty: JPEG, PNG, WebP")
         if request.content_length and request.content_length > PHOTO_MAX_BYTES:
             return web.Response(status=413, text="Zdjęcie jest za duże (maks. 15 MB)")
-        data = await request.content.read(PHOTO_MAX_BYTES + 1)
-        if len(data) > PHOTO_MAX_BYTES:
-            return web.Response(status=413, text="Zdjęcie jest za duże (maks. 15 MB)")
+        buf = bytearray()
+        async for chunk in request.content.iter_chunked(64 * 1024):
+            buf += chunk
+            if len(buf) > PHOTO_MAX_BYTES:
+                return web.Response(status=413, text="Zdjęcie jest za duże (maks. 15 MB)")
+        data = bytes(buf)
         entry = _entry(hass)
         if entry is None:
             return web.Response(status=404, text="Mapa nieba nie jest skonfigurowana")

@@ -22,7 +22,7 @@ type: custom:mapa-nieba-card
 
 Karta działa jak małe planetarium:
 
-- **przeciąganie** rozgląda się po całym niebie, **kółko / dwa palce** zmieniają zoom, **⌖** wraca do kierunku okna,
+- **przeciąganie** rozgląda się po całym niebie, **Ctrl + kółko** albo **dwa palce** zmieniają zoom (samo kółko i pionowy ruch palcem przewijają stronę), **⌖** wraca do kierunku okna,
 - pasek na dole: **▶** odtwarza noc, suwak przewija czas ±12 h, **●** wraca do „teraz”, **⚙** otwiera kreator (administrator),
 - konstelacje z polskimi nazwami, za dnia gwiazdy i planety są ledwo widoczne i jaśnieją wraz ze zmierzchem,
 - najechanie na obiekt pokazuje wysokość, azymut i stan sensora; kliknięcie otwiera encję.

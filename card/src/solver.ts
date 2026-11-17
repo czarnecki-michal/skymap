@@ -1,4 +1,4 @@
-import { project, type WindowGeometry } from "./projection";
+import { project, unproject, type WindowGeometry } from "./projection";
 
 /** A known sky object clicked on the photo (x, y normalised to the photo). */
 export interface Match {
@@ -71,7 +71,11 @@ export function solveGeometry(start: WindowGeometry, matches: Match[]): SolveRes
   };
   const cost = (r: number[]) => r.reduce((s, x) => s + x * x, 0);
 
-  let p = full ? [start.az_center, start.alt_center, start.hfov, start.roll] : [start.az_center, start.alt_center];
+  // seed the direction from the first match so the fit can reach any azimuth
+  const m0 = matches[0];
+  const [seedAz, seedAlt] = unproject({ ...start, az_center: m0.az, alt_center: m0.alt }, 1 - m0.x, 1 - m0.y);
+  const seed = { az: seedAz, alt: Math.max(-10, Math.min(89, seedAlt)) };
+  let p = full ? [seed.az, seed.alt, start.hfov, start.roll] : [seed.az, seed.alt];
   let r = residuals(p);
   let lambda = 1e-3;
   for (let it = 0; it < 50; it++) {
@@ -102,5 +106,9 @@ export function solveGeometry(start: WindowGeometry, matches: Match[]): SolveRes
   if (!Number.isFinite(error) || error > 0.01) {
     return { fail: "Nie udało się dopasować zdjęcia – sprawdź, czy kliknięte obiekty są właściwe." };
   }
-  return { geometry: toGeo(p), error };
+  const geometry = toGeo(p);
+  if (full && (Math.abs(geometry.roll) > 30 || geometry.hfov <= 15 || geometry.hfov >= 115)) {
+    return { fail: "Dopasowanie wygląda nieprawdopodobnie – sprawdź, czy kliknięte obiekty są właściwe." };
+  }
+  return { geometry, error };
 }

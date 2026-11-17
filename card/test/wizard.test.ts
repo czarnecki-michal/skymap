@@ -88,3 +88,32 @@ describe("wizard UI save", () => {
     expect(fetchWithAuth.mock.calls[0][0]).toBe("/api/mapa_nieba/photo");
   });
 });
+
+describe("wizard review fixes", async () => {
+  const w = await import("../src/wizard");
+  it("deleting and then skipping keeps the deletion", () => {
+    let s = w.initWizard(data, "/api/mapa_nieba/photo?v=1");
+    s = w.skipPhoto(w.skipPhoto(s));
+    expect(s.photo.deleted).toBe(true);
+  });
+  it("calibrating by stars needs the photo time, also for an existing photo", () => {
+    let s = w.initWizard(data, "/api/mapa_nieba/photo?v=1");
+    s = w.next(s);
+    expect(s.step).toBe("method");
+    s = w.chooseMethod(s, "stars");
+    expect(s.step).toBe("method");
+    expect(s.error).toMatch(/godzin/);
+    s = w.chooseMethod(w.setPhotoTime(s, new Date()), "stars");
+    expect(s.step).toBe("stars");
+  });
+  it("validates the file before upload", () => {
+    expect(w.validatePhotoFile({ type: "image/jpeg", size: 1000 })).toBeNull();
+    expect(w.validatePhotoFile({ type: "", size: 1000 })).toMatch(/JPEG/);
+    expect(w.validatePhotoFile({ type: "image/heic", size: 1000 })).toMatch(/JPEG/);
+    expect(w.validatePhotoFile({ type: "image/png", size: 16 * 1024 * 1024 })).toMatch(/15 MB/);
+  });
+  it("manual time is read in the HA time zone", () => {
+    expect(w.parseLocalInput("2026-01-15T21:30", "Europe/Warsaw").toISOString()).toBe("2026-01-15T20:30:00.000Z");
+    expect(w.formatLocalInput(new Date("2026-01-15T20:30:00Z"), "Europe/Warsaw")).toBe("2026-01-15T21:30");
+  });
+});

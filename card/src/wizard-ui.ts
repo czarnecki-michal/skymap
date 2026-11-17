@@ -8,7 +8,8 @@ import { bodiesAt, type SkyReply } from "./sky-data";
 import { skyColors, type View } from "./view";
 import {
   addMatch, altToHorizon, back, canNext, chooseMethod, clearMatches, hasPhoto, horizonToAlt, initWizard, next,
-  savePayload, setPhoto, setPhotoTime, skipPhoto, type Step, type WizardState,
+  formatLocalInput, parseLocalInput, savePayload, setPhoto, setPhotoTime, skipPhoto, validatePhotoFile,
+  type Step, type WizardState,
 } from "./wizard";
 
 const STEPS: [Step, string][] = [
@@ -27,9 +28,6 @@ interface Candidate {
   alt: number;
 }
 
-const pad = (n: number) => String(n).padStart(2, "0");
-const toLocalInput = (d: Date) =>
-  `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}T${pad(d.getHours())}:${pad(d.getMinutes())}`;
 
 export class MapaNiebaWizard extends LitElement {
   static properties = {
@@ -66,11 +64,21 @@ export class MapaNiebaWizard extends LitElement {
   }
 
   // ---------------------------------------------------------------- actions
+  get _tz(): string {
+    return this.hass?.config?.time_zone || "UTC";
+  }
+
   _close() {
     this.dispatchEvent(new CustomEvent("close"));
   }
 
   async _onFile(file: File) {
+    const bad = validatePhotoFile(file);
+    if (bad) {
+      this._msg = bad;
+      return;
+    }
+    this._msg = "";
     const buf = await file.arrayBuffer();
     const exif = readExifDate(buf);
     const blobUrl = URL.createObjectURL(file);
@@ -296,7 +304,7 @@ export class MapaNiebaWizard extends LitElement {
     footer { display: flex; justify-content: space-between; gap: 8px; margin-top: 14px; align-items: center; }
     .msg { color: #ffb4a8; font-size: 13px; }
     .hint { color: #aab3d9; font-size: 13px; margin: 6px 0; }
-    .frame { position: relative; width: 100%; max-height: 60vh; border-radius: 10px; overflow: hidden;
+    .frame { position: relative; margin: 0 auto; border-radius: 10px; overflow: hidden;
              background: linear-gradient(#0b1430, #1b2550 70%, #121318 70%); cursor: crosshair; }
     .frame img { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: fill; }
     .frame canvas, .frame svg { position: absolute; inset: 0; width: 100%; height: 100%; }
@@ -345,7 +353,7 @@ export class MapaNiebaWizard extends LitElement {
   _frame(content: unknown, onClick?: (e: MouseEvent) => void, extra = "") {
     const s = this.state;
     const src = hasPhoto(s) ? s.photo.blobUrl : "";
-    return html`<div class="frame" style="aspect-ratio:${s.geometry.aspect};${extra}" @click=${onClick ?? (() => undefined)}>
+    return html`<div class="frame" style="aspect-ratio:${s.geometry.aspect};width:min(100%, calc(60vh * ${s.geometry.aspect}));${extra}" @click=${onClick ?? (() => undefined)}>
       ${src ? html`<img src=${src} alt="" style="opacity:${s.step === "preview" ? s.opacity : 1}"/>` : nothing}
       ${content}
     </div>`;
@@ -372,17 +380,17 @@ export class MapaNiebaWizard extends LitElement {
     return html`
       <p class="hint">Zdjęcie jest opcjonalne. Najlepiej nocne, zrobione z miejsca, z którego patrzysz.</p>
       ${hasPhoto(s)
-        ? html`${this._frame(nothing, undefined, "max-height:40vh;cursor:default")}`
+        ? html`${this._frame(nothing, undefined, "cursor:default")}`
         : html`<label class="drop" @dragover=${(e: DragEvent) => e.preventDefault()}
                  @drop=${(e: DragEvent) => { e.preventDefault(); const f = e.dataTransfer?.files[0]; if (f) void this._onFile(f); }}>
                  Przeciągnij zdjęcie tutaj albo kliknij, aby wybrać<br/>
                  <input type="file" accept="image/*" style="margin-top:10px"
                    @change=${(e: Event) => { const f = (e.target as HTMLInputElement).files?.[0]; if (f) void this._onFile(f); }}/>
                </label>`}
-      ${hasPhoto(s) && s.photo.blob
-        ? html`<label>Kiedy zrobiono zdjęcie ${s.photo.needsTime ? html`<b>(brak w pliku – podaj)</b>` : "(odczytane z pliku)"}</label>
-               <input type="datetime-local" .value=${s.photo.time ? toLocalInput(s.photo.time) : ""}
-                 @change=${(e: Event) => { const v = (e.target as HTMLInputElement).value; if (v) this.state = setPhotoTime(this.state, new Date(v)); }}/>`
+      ${hasPhoto(s)
+        ? html`<label>Kiedy zrobiono zdjęcie ${s.photo.time ? (s.photo.blob && !s.photo.needsTime ? "(odczytane z pliku)" : "") : html`<b>(potrzebne do kalibracji po gwiazdach – podaj)</b>`}</label>
+               <input type="datetime-local" .value=${s.photo.time ? formatLocalInput(s.photo.time, this._tz) : ""}
+                 @change=${(e: Event) => { const v = (e.target as HTMLInputElement).value; if (v) this.state = setPhotoTime(this.state, parseLocalInput(v, this._tz)); }}/>`
         : nothing}
       ${hasPhoto(s)
         ? html`<label>Przezroczystość zdjęcia na mapie: ${Math.round(s.opacity * 100)}%</label>
@@ -477,7 +485,7 @@ export class MapaNiebaWizard extends LitElement {
     const t = this._preview ? new Date(this._preview.base.getTime() + this._previewMin * 60000) : null;
     return html`
       <p class="hint">Tak będzie wyglądać dzisiejsza noc w Twoim kadrze. Przesuń suwak, żeby zobaczyć ruch nieba.</p>
-      <div class="frame" style="aspect-ratio:${this.state.geometry.aspect};cursor:default">
+      <div class="frame" style="aspect-ratio:${this.state.geometry.aspect};width:min(100%, calc(60vh * ${this.state.geometry.aspect}));cursor:default">
         <canvas class="wz"></canvas>
         ${hasPhoto(this.state) ? html`<img src=${this.state.photo.blobUrl!} alt="" style="opacity:${this.state.opacity}"/>` : nothing}
         <canvas class="wz-over"></canvas>

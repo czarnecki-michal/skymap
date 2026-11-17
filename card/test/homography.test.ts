@@ -41,3 +41,17 @@ describe("photoTransform", () => {
     expect(photoTransform(win, { az: 315, alt: 15, hfov: 67 }, W, H)).toBeNull();
   });
 });
+
+describe("photoTransform with a clamped stage", () => {
+  it("uses the container aspect for the view", () => {
+    const view = { az: 130, alt: 18, hfov: 70 };
+    const w = 500, h = 560; // stage clamped by max-height, aspect != window aspect
+    const n = photoTransform(win, view, w, h)!.slice(9, -1).split(",").map(Number);
+    const hm = [n[0], n[4], n[12], n[1], n[5], n[13], n[3], n[7], 1];
+    const [az, alt] = unproject(win, 0.5, 0.5);
+    const exp = project(viewGeometry(view, w / h), az, alt)!;
+    const got = applyH(hm, w / 2, h / 2);
+    expect(got[0]).toBeCloseTo(exp[0] * w, 6);
+    expect(got[1]).toBeCloseTo(exp[1] * h, 6);
+  });
+});

@@ -20,7 +20,8 @@ SOLAR_SYSTEM = ["sun", "moon", "mercury", "venus", "mars", "jupiter", "saturn"]
 
 
 def _entry(hass: HomeAssistant):
-    entries = [e for e in hass.config_entries.async_entries(DOMAIN) if hasattr(e, "runtime_data")]
+    # options live on the entry itself, so this works even while the entry is reloading
+    entries = hass.config_entries.async_entries(DOMAIN)
     return entries[0] if entries else None
 
 

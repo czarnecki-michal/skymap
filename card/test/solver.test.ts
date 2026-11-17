@@ -37,3 +37,22 @@ describe("solveGeometry", () => {
     expect(angleDiff(r.geometry.az_center, 355)).toBeLessThan(0.1);
   });
 });
+
+describe("solver review fixes", () => {
+  it("finds a west-facing window from the default south-east start", () => {
+    const west = { ...truth, az_center: 250 };
+    const r = solveGeometry(start, [match(west, 235, 30), match(west, 265, 12)]);
+    if ("fail" in r) throw new Error(r.fail);
+    expect(angleDiff(r.geometry.az_center, 250)).toBeLessThan(0.1);
+    const north = { ...truth, az_center: 330, hfov: 67, roll: 0 };
+    const r1 = solveGeometry({ ...start, roll: 0 }, [match(north, 320, 25)]);
+    if ("fail" in r1) throw new Error(r1.fail);
+    expect(angleDiff(r1.geometry.az_center, 330)).toBeLessThan(0.1);
+  });
+  it("rejects an implausible fit from a wrongly identified object", () => {
+    const good = match(truth, 125, 30);
+    const p = match(truth, 155, 12);
+    const wrong = { az: 60, alt: 50, x: p.x, y: p.y };
+    expect("fail" in solveGeometry(start, [good, wrong])).toBe(true);
+  });
+});

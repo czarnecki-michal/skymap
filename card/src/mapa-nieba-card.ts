@@ -65,7 +65,7 @@ export class MapaNiebaCard extends LitElement {
 
   static styles = css`
     ha-card { overflow: hidden; padding: 0; }
-    .stage { position: relative; width: 100%; overflow: hidden; background: #050816; touch-action: none;
+    .stage { position: relative; width: 100%; overflow: hidden; background: #050816; touch-action: pan-y;
              user-select: none; max-height: 85vh; }
     canvas, img.photo { position: absolute; left: 0; top: 0; }
     img.photo { transform-origin: 0 0; pointer-events: none; }
@@ -99,13 +99,18 @@ export class MapaNiebaCard extends LitElement {
 
   connectedCallback() {
     super.connectedCallback();
-    this._timer = window.setInterval(() => void this._loadSky().catch(() => undefined), 10 * 60000);
+    this._timer = window.setInterval(() => {
+      void this._loadSky().catch(() => undefined);
+      void this._resolvePhoto().catch(() => undefined);
+    }, 10 * 60000);
+    if (this._data) this.requestUpdate(); // re-attach the resize observer and redraw after a reconnect
   }
 
   disconnectedCallback() {
     super.disconnectedCallback();
     if (this._timer) clearInterval(this._timer);
     cancelAnimationFrame(this._raf);
+    this._playing = false;
     this._ro?.disconnect();
     this._ro = undefined;
   }
@@ -152,7 +157,9 @@ export class MapaNiebaCard extends LitElement {
       this._photoSrc = "";
       return;
     }
-    const signed = await this.hass.callWS({ type: "auth/sign_path", path: `${p.url}?v=${p.version}` });
+    const signed = await this.hass.callWS({
+      type: "auth/sign_path", path: `${p.url}?v=${p.version}`, expires: 24 * 3600,
+    });
     this._photoSrc = signed.path;
   }
 
@@ -246,6 +253,7 @@ export class MapaNiebaCard extends LitElement {
   }
 
   _wheel(e: WheelEvent) {
+    if (!e.ctrlKey) return; // plain wheel scrolls the page; Ctrl+wheel zooms (like maps)
     e.preventDefault();
     this._view = zoomView(this._view, e.deltaY > 0 ? 1.08 : 0.92);
   }
